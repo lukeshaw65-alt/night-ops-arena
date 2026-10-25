@@ -2761,9 +2761,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const theirs = isHost() && e.lastBy === 'opp';
     const killer = theirs ? vsPeer(e.lastCode) : null;
     const wiz = isWizard(e.type) && !d.minion;
-    // raised skeletons are endless, so they give no mastery xp
+    // raised skeletons are endless, so they give no mastery xp and no points
     const xp = d.minion ? 0 : e.type === 'boss' ? 30 : e.type === 'tank' || e.type === 'plated' || e.type === 'cleric' || e.type === 'necro' ? 3 : wiz ? 2 : 1;
-    const base = e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) : d.pts * (1 + (G.wave - 1) * 0.15);
+    const base = d.minion ? 0 : e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) : d.pts * (1 + (G.wave - 1) * 0.15);
     const pts = Math.round(base * (pRank() >= 8 ? 1.1 : 1));
     if (theirs) vsTo(killer.code, { t: 'v.kill', pts: base, xp, ml: e.meleeHit ? 1 : 0, x: e.x, y: e.y, boss: e.type === 'boss' ? 1 : 0, bi: e.boss, bl: e.loop || 0, wz: wiz ? 1 : 0 });
     else {
@@ -2787,7 +2787,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       SFX.boss();
       return;
     }
-    if (!theirs) floatText(e.x, e.y - e.r, '+' + pts, '#f2b134');
+    if (!theirs && pts) floatText(e.x, e.y - e.r, '+' + pts, '#f2b134');
     killFx(e.x, e.y, theirs ? killer.ke : myCos().kill);
     stain(e.x, e.y, e.r);
     SFX.kill();
