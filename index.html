@@ -164,6 +164,13 @@ details summary { cursor: pointer; }
 }
 @keyframes rainbow { to { background-position: 200% 0; } }
 @media (prefers-reduced-motion: reduce) { .nc-rainbow { animation: none; } }
+/* the Radiant 50 name tag: a white-gold shine sweeping across the name */
+.nc-radiant {
+  background: linear-gradient(90deg, #ffb347, #fff1b8, #ffffff, #ffd36b, #ffb347); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: rainbow 2.2s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(255,211,107,0.7));
+}
+@media (prefers-reduced-motion: reduce) { .nc-radiant { animation: none; } }
 .ttl { font: 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .tier { font: 10px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid currentColor; padding: 1px 6px; flex: none; }
 .pstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px 16px; }
@@ -656,7 +663,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // a level from anywhere (friends, boards, the wire); older copies only sent the tier
   const lvOf = (lv, prank) => clamp(Math.floor(Number(lv) || 0) || num(prank, PRANKS.length - 1) + 1, 1, MAX_LV);
   const RADIANT = PRANKS.length;
-  const lvName = lv => lv > RADIANT ? `Radiant ${lv - RADIANT}` : PRANKS[lv - 1].name;
+  // Radiant 1–10 each give a small perk; past that the ranks are just for show
+  const RAD_PERKS = ['+5 max health', '+2% move speed', '+25 armory points every run', '+3% damage', '+5 more max health',
+    '5% faster reloads', '+2% more move speed', '+25 more armory points every run', '+3% more damage', '+5% points from kills'];
+  const radLv = () => clamp(pLevel() - RADIANT, 0, RAD_PERKS.length);
+  const radDmg = () => 1 + 0.03 * (radLv() >= 4) + 0.03 * (radLv() >= 9);
+  const rankBonus = () => (pRank() >= 2 ? 50 : 0) + 25 * (radLv() >= 3) + 25 * (radLv() >= 8);
+  const ptsMul = () => (pRank() >= 8 ? 1.1 : 1) * (radLv() >= 10 ? 1.05 : 1);
+  const lvName = lv => lv >= MAX_LV ? `★ Radiant ${lv - RADIANT}` : lv > RADIANT ? `Radiant ${lv - RADIANT}` : PRANKS[lv - 1].name;
   const lvColor = lv => lv > RADIANT ? '#fff1b8' : PRANKS[lv - 1].color || '#a7ada3';
   const lvBadge = lv => `<span class="lvb${lv > RADIANT ? ' rad' : ''}" style="color:${lvColor(lv)}">${lvName(lv)}</span>`;
   const WIND = { id: 'p_wind', name: 'Second wind', label: 'Once per wave, a killing blow leaves you at', base: 160, max: 2, val: l => l ? `${l >= 2 ? 30 : 1} health` : 'nothing' };
@@ -685,8 +699,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     MAST[PLAYER_KEY] = xpOf(PLAYER_KEY) + n;
     const pAfter = pLevel();
     if (pAfter > pBefore) {
-      G.banner = pAfter >= MAX_LV ? { title: 'Radiant 50', sub: 'You reached the top rank', t: 3.5 }
-        : pAfter > RADIANT ? { title: lvName(pAfter), sub: pAfter === RADIANT + 1 ? 'You went past Mythic · radiant name tag' : 'You ranked up', t: 3 }
+      G.banner = pAfter >= MAX_LV ? { title: 'Radiant 50', sub: 'You reached the top rank · Radiant name tag unlocked', t: 3.5 }
+        : pAfter > RADIANT ? { title: lvName(pAfter), sub: pAfter - RADIANT <= RAD_PERKS.length ? `You ranked up · ${RAD_PERKS[pAfter - RADIANT - 1]}` : 'You ranked up', t: 3 }
         : { title: `${lvName(pAfter)} rank`, sub: `You ranked up · ${PLAYER_PERKS[pAfter - 2]}`, t: 3 };
       SFX.wave();
       saveMastery();
@@ -738,7 +752,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { id: 'arsenal', cat: 'Mastery', name: 'Arsenal', desc: 'Get every gun to Bronze mastery', tier: 'hard', prog: () => [GUNS.filter(g => rankOf(g.id) >= 1).length, GUNS.length], reward: { decal: 'star' } },
     { id: 'legend', cat: 'Mastery', name: 'Legendary', desc: 'Reach Legend player rank', tier: 'extreme', reward: { title: 'Legend' } },
     { id: 'mythic', cat: 'Mastery', name: 'Mythic', desc: 'Reach Mythic player rank', tier: 'legendary', reward: { title: 'Mythic', name: 'rainbow' } },
-    { id: 'radiant', cat: 'Mastery', name: 'Radiant', desc: 'Reach Radiant 50, the top player rank', tier: 'legendary', prog: () => [Math.max(0, pLevel() - RADIANT), MAX_LV - RADIANT], reward: { title: 'the Radiant' } },
+    { id: 'radiant', cat: 'Mastery', name: 'Radiant', desc: 'Reach Radiant 50, the top player rank', tier: 'legendary', prog: () => [Math.max(0, pLevel() - RADIANT), MAX_LV - RADIANT], reward: { title: 'the Radiant', name: 'radiant' } },
     { id: 'squad', cat: 'Versus & friends', name: 'Squad Up', desc: 'Add your first friend', tier: 'easy' },
     { id: 'rivals', cat: 'Versus & friends', name: 'Rivals', desc: 'Finish a versus match', tier: 'easy' },
     { id: 'pickpocket', cat: 'Versus & friends', name: 'Pickpocket', desc: 'Steal 1,000 or more score in a single takedown', tier: 'hard', reward: { name: 'emerald' } },
@@ -762,7 +776,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // cosmetics: the first of each list is always yours; the rest come from achievements
   const COS = {
     tracer: { amber: 'Amber', crimson: 'Crimson', violet: 'Violet', ice: 'Ice', gold: 'Gold', arcane: 'Arcane' },
-    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', frost: 'Frost', rainbow: 'Rainbow' },
+    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', frost: 'Frost', rainbow: 'Rainbow', radiant: 'Radiant' },
     decal: { none: 'None', skull: 'Skull', pig: 'Pig', star: 'Star', crown: 'Crown', dragon: 'Dragon' },
     kill: { blood: 'Default', sparks: 'Sparks', smoke: 'Smoke', confetti: 'Confetti', ember: 'Embers', arcane: 'Arcane' }
   };
@@ -820,7 +834,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (GUNS.every(g => rankOf(g.id) >= 1)) unlock('arsenal');
     if (pRank() >= 8) unlock('legend');
     if (pRank() >= 9) unlock('mythic');
-    if (pLevel() >= MAX_LV) unlock('radiant');
+    // reaching Radiant 50 puts the Radiant name tag on straight away (it can be changed in the profile)
+    if (pLevel() >= MAX_LV && !ACH.radiant) { unlock('radiant'); MYCOS.name = 'radiant'; saveCos(); }
   }
   function checkWave(n) {
     if (n >= 10) unlock('surv10');
@@ -875,10 +890,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const magSize = () => Math.round(gunDef().mag * (1 + lvl('mag') / 3) * (gunRank() >= 8 ? 1.1 : 1));
   const fireTime = () => gunDef().fire * Math.pow(0.85, lvl('rate')) / (1 + 0.08 * lvl('x_sover'))
     / (1 + 0.15 * lvl('x_lspin') * Math.min(1, (G.player.spinT || 0) / 2));
-  const reloadTime = () => gunDef().reload * Math.pow(0.8, lvl('reload')) * (gunRank() >= 7 ? 0.9 : 1);
-  const bulletDmg = () => gunDef().dmg * (1 + lvl('dmg')) * overdrive() * gunMastDmg();
+  const reloadTime = () => gunDef().reload * Math.pow(0.8, lvl('reload')) * (gunRank() >= 7 ? 0.9 : 1) * (radLv() >= 6 ? 0.95 : 1);
+  const bulletDmg = () => gunDef().dmg * (1 + lvl('dmg')) * overdrive() * gunMastDmg() * radDmg();
   const moveSpeed = () => 240 * (G.player.melee ? meleeDef().move : gunDef().move + 0.05 * lvl('l_grip')) * (1 + 0.08 * lvl('speed'))
-    * (pRank() >= 5 ? 1.05 : 1);
+    * (pRank() >= 5 ? 1.05 : 1) * (1 + 0.02 * (radLv() >= 2) + 0.02 * (radLv() >= 7));
   const critChance = () => 0.08 * lvl('crit');
   const pelletCount = () => gunDef().pellets + 2 * lvl('sg_buck');
   const spreadMul = () => Math.pow(0.6, lvl('c_match')) * Math.pow(0.75, lvl('s_comp')) * Math.pow(0.8, lvl('sg_choke')) * Math.pow(0.7, lvl('l_grip'));
@@ -938,7 +953,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   function freshState(gun) {
-    const g = GUN[gun] || GUNS[0], hp0 = 100 + (pRank() >= 1 ? 10 : 0);
+    const g = GUN[gun] || GUNS[0], hp0 = 100 + (pRank() >= 1 ? 10 : 0) + 5 * (radLv() >= 1) + 5 * (radLv() >= 5);
     return {
       gun: g.id, melee: MELEE_BY[chosenMelee] ? chosenMelee : MELEE[0].id, endless: false, diff: 'normal', hazards: [],
       state: 'title', wave: 0, score: 0, kills: 0, spent: 0, bonus: 0, prep: false, xpRun: {},
@@ -1390,7 +1405,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     G.vs.peers = [G.vs.opp];
     Object.assign(G.player, s);
     G.state = 'playing';
-    G.bonus = pRank() >= 2 ? 50 : 0;
+    G.bonus = rankBonus();
     paintFloor();
     ui.overlay.hidden = true;
     mouse.down = false;
@@ -1799,7 +1814,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         break;
       case 'v.kill': {
         if (v.role !== 'guest') break;
-        const pts = Math.round(Math.min(1e6, +d.pts || 0) * (pRank() >= 8 ? 1.1 : 1));
+        const pts = Math.round(Math.min(1e6, +d.pts || 0) * ptsMul());
         addScore(pts);
         gainXp(d.ml ? G.melee : G.gun, num(d.xp, 30));
         if (!d.mn) { G.kills++; onMyKill(!!d.ml, d.boss ? clamp(num(d.bi, 99), 0, BOSSES.length - 1) : null, num(d.bl, 99), !!d.wz); }
@@ -2051,7 +2066,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       over: false, heard: now, fx: [] };
     Object.assign(G.player, vsSpot());
     G.state = 'playing';
-    G.bonus = pRank() >= 2 ? 50 : 0;
+    G.bonus = rankBonus();
     paintFloor();
     ui.overlay.hidden = true;
     mouse.down = false;
@@ -2536,7 +2551,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     SFX.swap();
   }
 
-  const meleeDmg = () => meleeDef().dmg * (1 + lvl('dmg')) * (1 + 0.35 * lvl('k_edge')) * overdrive() * meleeMastDmg();
+  const meleeDmg = () => meleeDef().dmg * (1 + lvl('dmg')) * (1 + 0.35 * lvl('k_edge')) * overdrive() * meleeMastDmg() * radDmg();
 
   // hits everything in an arc in front of you, and anything standing inside you
   function meleeStrike(arc, range, dmg) {
@@ -2798,7 +2813,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     // raised skeletons are endless, so they give no mastery xp or points and don't count as kills
     const xp = d.minion ? 0 : e.type === 'boss' ? 30 : e.type === 'tank' || e.type === 'plated' || e.type === 'cleric' || e.type === 'necro' ? 3 : wiz ? 2 : 1;
     const base = d.minion ? 0 : e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) : d.pts * (1 + (G.wave - 1) * 0.15);
-    const pts = Math.round(base * (pRank() >= 8 ? 1.1 : 1));
+    const pts = Math.round(base * ptsMul());
     if (theirs) vsTo(killer.code, { t: 'v.kill', pts: base, xp, ml: e.meleeHit ? 1 : 0, x: e.x, y: e.y, boss: e.type === 'boss' ? 1 : 0, bi: e.boss, bl: e.loop || 0, wz: wiz ? 1 : 0, mn: d.minion ? 1 : 0 });
     else {
       if (lvl('l_belt')) G.player.mag = Math.min(magSize(), G.player.mag + lvl('l_belt'));
@@ -4272,8 +4287,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     ctx.font = '600 11px "Share Tech Mono", monospace';
     const lt = lvName(lv), bw = ctx.measureText(lt).width + 8, x0 = x - (nw + 5 + bw) / 2;
     ctx.font = '600 13px "Chakra Petch", sans-serif';
-    ctx.fillStyle = nc === 'rainbow' ? `hsl(${(t / 11) % 360},90%,70%)` : NAME_COL[nc] || plain;
+    ctx.fillStyle = nc === 'rainbow' ? `hsl(${(t / 11) % 360},90%,70%)` : nc === 'radiant' ? `hsl(${42 + 8 * Math.sin(t / 300)},100%,${76 + 12 * Math.sin(t / 300)}%)` : NAME_COL[nc] || plain;
+    if (nc === 'radiant') { ctx.save(); ctx.shadowColor = '#ffd36b'; ctx.shadowBlur = 8 + 4 * Math.sin(t / 250); }
     ctx.fillText(name, x0, y - 40);
+    if (nc === 'radiant') ctx.restore();
     ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(x0 + nw + 5, y - 52, bw, 15);
     ctx.font = '600 11px "Share Tech Mono", monospace';
     ctx.fillStyle = lvColor(lv);
@@ -4568,7 +4585,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const xp = Math.floor(xpOf(PLAYER_KEY)), n = pLevel(), top = n >= MAX_LV;
     const pct = top ? 100 : Math.round(100 * (xp - LV_XP[n]) / (LV_XP[n + 1] - LV_XP[n]));
     const list = PLAYER_PERKS.map((p, i) => `<li class="${n >= i + 2 ? 'on' : ''}"><span style="color:${lvColor(i + 2)}">${lvName(i + 2)}</span>${p}</li>`).join('')
-      + `<li class="${n > RADIANT ? 'on' : ''}"><span style="color:${lvColor(MAX_LV)}">Radiant 1–50</span>${n > RADIANT ? `You're ${lvName(n)}` : '50 more ranks after Mythic'} · glowing name tag</li>`;
+      + RAD_PERKS.map((p, i) => `<li class="${n >= RADIANT + i + 1 ? 'on' : ''}"><span style="color:${lvColor(MAX_LV)}">${lvName(RADIANT + i + 1)}</span>${p}${i ? '' : ' · glowing rank badge'}</li>`).join('')
+      + `<li class="${top ? 'on' : ''}"><span style="color:${lvColor(MAX_LV)}">Radiant 11–49</span>No new perks · a rank to show off</li>`
+      + `<li class="${top ? 'on' : ''}"><span style="color:${lvColor(MAX_LV)}">Radiant 50</span>The Radiant achievement · Radiant name tag · starred badge</li>`;
     return `<div class="mastery">
       <div class="mhead"><span class="label">Player rank · ${lvBadge(n)}</span><span class="label">${top ? `${xp} XP · max rank` : `${xp} / ${LV_XP[n + 1]} XP`}</span></div>
       <div class="rbar"><i style="width:${pct}%"></i></div>
@@ -4716,7 +4735,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   // ---------- profile & achievements ----------
   let profTab = 'overview';
-  const nameHtml = (name, nc) => nc === 'rainbow' ? `<span class="nc-rainbow">${esc(name)}</span>`
+  const nameHtml = (name, nc) => nc === 'rainbow' || nc === 'radiant' ? `<span class="nc-${nc}">${esc(name)}</span>`
     : `<span style="color:${NAME_COL[nc] || 'inherit'}">${esc(name)}</span>`;
   function rewardText(r) {
     if (!r) return '';
@@ -5307,7 +5326,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     ui.overlay.hidden = true;
     mouse.down = false;
     const s = clamp(startSel, 1, 30);
-    G.bonus = pRank() >= 2 ? 50 : 0;
+    G.bonus = rankBonus();
     if (s > 1) { G.wave = s - 1; G.bonus += startBonus(s); G.prep = true; openShop(); }
     else startWave(1);
   }
@@ -5467,7 +5486,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     hello: () => frHelloAll(),
     hurt(n) { const p = G.player; p.prot = 0; p.iframe = 0; hurtPlayer(n, 0, 0, true); },
     ranks: () => ({ lv: pLevel(), pr: pRank(), gr: gunRank(), mr: meleeRank(), mag: magSize(), reload: +reloadTime().toFixed(3),
-      dmg: +bulletDmg().toFixed(3), mdmg: +meleeDmg().toFixed(3), lvXp: LV_XP })
+      dmg: +bulletDmg().toFixed(3), mdmg: +meleeDmg().toFixed(3), rad: radLv(), bonus: rankBonus(), pts: ptsMul(), lvXp: LV_XP }),
+    checkRanks: () => checkRanks()
   };
   if (hot && typeof hot.ready === 'function') hot.ready(start);
   else start(hot && hot.data ? hot.data : {});
