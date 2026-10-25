@@ -1010,9 +1010,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     vsSend({ t: 'v.die', credit: credit ? 1 : 0, stolen, how });
   }
 
+  function vsWipe() {
+    G.queue = []; G.enemies = []; G.shots = []; G.pickups = [];
+    G.vs.eshots = []; G.vs.wiped = true;
+    vsSend({ t: 'v.wipe' });
+  }
   // a cleared wave banks whatever you earned in it
   function vsWaveCleared() {
     const p = G.player, v = G.vs;
+    if (v.wiped) {
+      v.wiped = false; v.risk = 0;
+      G.banner = { title: `Wave ${G.wave} lost`, sub: 'You both went down · back in next wave', t: 2.4 };
+      G.clearing = true; G.inter = 2.4;
+      return;
+    }
     let sub = 'You were down, so nothing to bank';
     if (!p.dead) {
       const bonus = rounds(36);
@@ -1330,6 +1341,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         SFX.wave();
         break;
       case 'v.wc': if (v.role === 'guest' && G.state === 'playing') vsWaveCleared(); break;
+      case 'v.wipe':
+        // clear the yard quietly, so the hostiles don't look like they were all killed
+        if (v.role === 'guest') { G.enemies = []; G.shots = []; G.pickups = []; v.wiped = true; }
+        break;
       case 'v.bn':
         if (v.role === 'guest' && d.b && typeof d.b === 'object') G.banner = { title: String(d.b.title || '').slice(0, 60), sub: String(d.b.sub || '').slice(0, 90), t: Math.min(4, +d.b.t || 2) };
         break;
@@ -2389,7 +2404,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (G.vs) {
       vsUpdate(dt);
       if (G.state !== 'playing') return;
-      if (isHost() && p.dead && G.vs.opp.dead) vsEnd('both', true);
+      // both down: the wave is lost, the yard is cleared, and you both come back next wave
+      if (isHost() && p.dead && G.vs.opp.dead && !G.clearing && (G.enemies.length || G.queue.length)) vsWipe();
     }
 
     G.shake = Math.max(0, G.shake - dt * 40);
