@@ -829,10 +829,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       me = { code: d.me.code, name: cleanName(d.me.name) };
       friends = {};
       for (const c of Object.keys(d.friends)) {
-        if (!/^[A-Z0-9]{12}$/.test(c) || c === me.code) continue;
-        const f = d.friends[c] || {};
-        friends[c] = { name: cleanName(f.name) || 'Player', prank: num(f.prank, PRANKS.length - 1), best: num(f.best, 1e9),
-          wave: num(f.wave, 9999), gun: GUN[f.gun] ? f.gun : undefined, seen: num(f.seen, 1e14) };
+        if (/^[A-Z0-9]{12}$/.test(c) && c !== me.code) friends[c] = cleanFriend(d.friends[c]);
       }
       jset('nightops-me', me); saveFriends();
       try { if (FR.peer) FR.peer.destroy(); } catch (e) {}
@@ -842,6 +839,54 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       frStart();
     } catch (e) { FR.note = 'That backup code didn’t work. Check you copied all of it.'; frRefresh(); }
   }
+  function cleanFriend(f) {
+    f = f || {};
+    return { name: cleanName(f.name) || 'Player', prank: num(f.prank, PRANKS.length - 1), best: num(f.best, 1e9),
+      wave: num(f.wave, 9999), gun: GUN[f.gun] ? f.gun : undefined, seen: num(f.seen, 1e14) };
+  }
+
+  // ---------- progress transfer: one code carries mastery, bests, saved run and friends between copies of the game ----------
+  const PROGRESS_TAG = 'NOPS1.';
+  const progressCode = () => PROGRESS_TAG + btoa(unescape(encodeURIComponent(JSON.stringify({
+    mastery: MAST, best, bestWave, board: localBoard(), run: loadRun(), friends, gun: chosenGun, melee: chosenMelee
+  }))));
+  // merges rather than replaces, keeping the better of each, so neither copy loses anything
+  function importProgress(raw) {
+    const s = String(raw || '').replace(/\s+/g, '');
+    if (!s.startsWith(PROGRESS_TAG)) throw new Error('bad');
+    const d = JSON.parse(decodeURIComponent(escape(atob(s.slice(PROGRESS_TAG.length)))));
+    if (!d || typeof d !== 'object') throw new Error('bad');
+    if (d.mastery && typeof d.mastery === 'object') {
+      for (const k of Object.keys(d.mastery)) {
+        if (k === PLAYER_KEY || GUN[k] || MELEE_BY[k]) MAST[k] = Math.max(xpOf(k), num(d.mastery[k], 1e9));
+      }
+      saveMastery();
+    }
+    best = Math.max(best, num(d.best, 1e9)); saveBest();
+    bestWave = Math.max(bestWave, num(d.bestWave, 9999)); jset('nightops-bestwave', bestWave);
+    if (Array.isArray(d.board)) {
+      const mine = localBoard(), seen = new Set(mine.map(r => `${r.at}:${r.score}`));
+      const rows = d.board.filter(r => r && typeof r === 'object').map(r => ({
+        score: num(r.score, 1e9), wave: num(r.wave, 9999), gun: GUN[r.gun] ? r.gun : 'carbine', melee: MELEE_BY[r.melee] ? r.melee : 'machete',
+        endless: !!r.endless, prank: num(r.prank, PRANKS.length - 1), at: num(r.at, 1e14) }));
+      jset('nightops-board', mine.concat(rows.filter(r => !seen.has(`${r.at}:${r.score}`))).sort((a, c) => c.score - a.score).slice(0, 10));
+    }
+    // a saved run only comes across if this copy doesn't already have one
+    if (d.run && d.run.player && Array.isArray(d.run.enemies) && !loadRun()) jset(RUN_KEY, d.run);
+    if (d.friends && typeof d.friends === 'object') {
+      for (const c of Object.keys(d.friends)) {
+        if (/^[A-Z0-9]{12}$/.test(c) && c !== me.code && !friends[c]) friends[c] = cleanFriend(d.friends[c]);
+      }
+      saveFriends();
+      Object.keys(friends).forEach(frConnect);
+    }
+    // these two are stored as plain strings, not JSON
+    try {
+      if (GUN[d.gun]) { chosenGun = d.gun; localStorage.setItem('nightops-gun', chosenGun); }
+      if (MELEE_BY[d.melee]) { chosenMelee = d.melee; localStorage.setItem('nightops-melee', chosenMelee); }
+    } catch (e) {}
+  }
+
   function copyText(text, ok) {
     const done = m => { FR.note = m; frRefresh(); };
     try { navigator.clipboard.writeText(text).then(() => done(ok), () => done('Copy this: ' + text)); }
@@ -2473,6 +2518,28 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       frBodyRender();
       return;
     }
+    if (kind === 'transfer') {
+      o.innerHTML = `<div class="brief">
+        <p class="eyebrow">Move between copies of the game</p>
+        <h1>Transfer progress</h1>
+        <p class="lede">Your player rank, weapon mastery, best scores, saved run and friends live in this browser, separately for each copy of the game. Use a progress code to bring them across.</p>
+        <div class="frrow">
+          <span class="label">1 · In the copy you’re moving from</span>
+          <div class="row2"><button type="button" class="ghost" data-act="mkcode">Show my progress code</button></div>
+          <textarea id="tfOut" class="field" rows="3" readonly hidden></textarea>
+        </div>
+        <div class="frrow">
+          <label class="label" for="tfIn">2 · In the copy you’re moving to</label>
+          <textarea id="tfIn" class="field" rows="3" placeholder="Paste a progress code here"></textarea>
+          <div class="row2"><button type="button" class="cta" data-act="import">Import progress</button></div>
+        </div>
+        <p class="note newbest frnote" id="tfNote"></p>
+        <p class="note">Importing keeps the higher value of everything, so it never lowers your progress here.</p>
+        <div class="actions"><button type="button" class="ghost" data-act="back">Back</button></div>
+      </div>`;
+      o.hidden = false;
+      return;
+    }
     const saved = kind === 'title' ? loadRun() : null;
     if (kind === 'board') {
       o.innerHTML = `<div class="brief wide">
@@ -2511,6 +2578,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <button type="button" class="ghost" data-act="endless">Endless</button>
           <button type="button" class="ghost" data-act="board">Leaderboard</button>
           <button type="button" class="ghost" data-act="friends">Friends${Object.keys(FR.pending).length ? ` (${Object.keys(FR.pending).length})` : ''}</button>
+          <button type="button" class="ghost" data-act="transfer">Transfer progress</button>
         </div>
         ${saved ? '<p class="note">Starting a new run replaces your saved one.</p>' : ''}
         ${best ? `<p class="note">Best score on this device: ${best.toLocaleString()}</p>` : ''}
@@ -2615,6 +2683,23 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     else if (act === 'board') { if (G.state !== 'title' && G.state !== 'over' && G.state !== 'won') return; boardFrom = G.state; showOverlay('board'); }
     else if (act === 'friends') { if (G.state !== 'title') return; boardFrom = 'title'; FR.note = ''; showOverlay('friends'); }
+    else if (act === 'transfer') { if (G.state !== 'title') return; boardFrom = 'title'; showOverlay('transfer'); }
+    else if (act === 'mkcode') {
+      const out = $('tfOut'), note = $('tfNote');
+      out.value = progressCode(); out.hidden = false; out.focus(); out.select();
+      const say = m => { note.textContent = m; };
+      try { navigator.clipboard.writeText(out.value).then(() => say('Progress code copied. Paste it into the other copy of the game.'), () => say('Press Ctrl+C to copy the selected code.')); }
+      catch (err) { say('Press Ctrl+C to copy the selected code.'); }
+    }
+    else if (act === 'import') {
+      const note = $('tfNote');
+      try {
+        importProgress($('tfIn').value);
+        G = freshState(chosenGun);
+        note.textContent = `Progress imported. You’re now ${PRANKS[pRank()].name} rank with a best score of ${best.toLocaleString()}.`;
+        $('tfIn').value = '';
+      } catch (err) { note.textContent = 'That progress code didn’t work. Make sure you copied all of it.'; }
+    }
     else if (act === 'back') showOverlay(boardFrom);
     else if (act === 'btab') { boardTab = b.dataset.tab; showOverlay('board'); }
     else if (act === 'resumerun') { const d = loadRun(); if (d) { G = normalize(d); paintFloor(); showOverlay(G.state); } }
