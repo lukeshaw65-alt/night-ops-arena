@@ -202,6 +202,10 @@ details summary { cursor: pointer; }
 .ranks li.on { opacity: 1; color: var(--text); }
 .ranks span { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; margin-right: 6px; }
 .rk { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.lvb { display: inline-block; font-family: var(--mono); font-size: 0.78em; font-weight: 600; line-height: 1.35; padding: 0 5px; border-radius: 4px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.12); vertical-align: middle; letter-spacing: 0.04em; }
+.lvb.rad { text-shadow: 0 0 6px #ffd36b, 0 0 12px rgba(255,240,190,0.8); border-color: rgba(255,211,107,0.6); animation: lvglow 2s ease-in-out infinite; }
+@keyframes lvglow { 50% { text-shadow: 0 0 10px #ffd36b, 0 0 18px #fff; } }
+@media (prefers-reduced-motion: reduce) { .lvb.rad { animation: none; } }
 .startpick { display: flex; flex-direction: column; gap: 8px; }
 .startpick .row { display: flex; align-items: center; gap: 12px; }
 .startpick input { flex: 1; min-width: 0; accent-color: var(--amber); }
@@ -544,8 +548,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const xpMul = () => arcane() ? 1.25 : 1;
   const gunDef = () => GUN[G.gun] || GUNS[0];
   const meleeDef = () => MELEE_BY[G.melee] || MELEE[0];
-  const meleeRate = () => meleeDef().rate * Math.pow(0.85, lvl('k_quick'));
-  const meleeRange = () => meleeDef().range * (1 + 0.12 * lvl('k_reach'));
+  const meleeRate = () => meleeDef().rate * Math.pow(0.85, lvl('k_quick')) * (meleeRank() >= 7 ? 0.95 : 1);
+  const meleeRange = () => meleeDef().range * (1 + 0.12 * lvl('k_reach')) * (meleeRank() >= 8 ? 1.08 : 1);
   const swingTime = () => Math.min(0.2, meleeRate() * 0.6);
 
   // ---------- mastery: kills with a weapon rank it up across runs ----------
@@ -555,8 +559,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { name: 'Silver', xp: 300, color: '#c3cad0' },
     { name: 'Gold', xp: 700, color: '#e6bc4c' },
     { name: 'Platinum', xp: 1400, color: '#dfeef4' },
-    { name: 'Diamond', xp: 2500, color: '#7fe8ff' }
+    { name: 'Diamond', xp: 2500, color: '#7fe8ff' },
+    { name: 'Master', xp: 4000, color: '#b46bff' },
+    { name: 'Grandmaster', xp: 6000, color: '#ff5a5a' },
+    { name: 'Legend', xp: 9000, color: '#ffd36b' },
+    { name: 'Mythic', xp: 13000, color: '#ff7ad9' }
   ];
+  // melee weapons rank up on 70% of the xp a gun needs
+  const MRANKS = RANKS.map(r => Object.assign({}, r, { xp: Math.round(r.xp * 0.7) }));
+  const ranksFor = id => MELEE_BY[id] ? MRANKS : RANKS;
   // each weapon's own mastery upgrades: the first unlocks at Gold, the second at Diamond
   const GUN_MAST = {
     carbine: [
@@ -601,9 +612,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   GUNS.forEach(g => { g.mast = GUN_MAST[g.id]; });
   MELEE.forEach(m => { m.mast = MELEE_MAST[m.id]; });
   const gunPerks = w => ['+1 level on signature upgrades · bronze trim', '+1 level on gear upgrades · silver finish',
-    `Unlocks ${w.mast[0].name} · gold finish`, '+1 more signature level · platinum glow', `Unlocks ${w.mast[1].name} · diamond tracers`];
+    `Unlocks ${w.mast[0].name} · gold finish`, '+1 more signature level · platinum glow', `Unlocks ${w.mast[1].name} · diamond tracers`,
+    '+5% damage · violet finish', '10% faster reloads · crimson finish', '+10% magazine size · golden finish', '+5% more damage · mythic finish'];
   const meleePerks = w => ['+1 level on Whetstone and Quick hands · bronze grip', '+1 level on Long grip · silver blade',
-    `Unlocks ${w.mast[0].name} · gold blade`, '+1 more level on every melee upgrade · platinum glow', `Unlocks ${w.mast[1].name} · diamond swing trail`];
+    `Unlocks ${w.mast[0].name} · gold blade`, '+1 more level on every melee upgrade · platinum glow', `Unlocks ${w.mast[1].name} · diamond swing trail`,
+    '+5% melee damage · violet blade', '5% faster swings · crimson blade', '+8% reach · golden blade', '+5% more melee damage · mythic blade'];
   let MAST = {};
   try { MAST = JSON.parse(localStorage.getItem('nightops-mastery') || '{}') || {}; } catch (e) { MAST = {}; }
   // lifetime stats ride along with every mastery save
@@ -612,8 +625,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   };
   const xpOf = id => MAST[id] || 0;
   const rankIn = (ranks, xp) => { let r = 0; for (let i = 1; i < ranks.length; i++) if (xp >= ranks[i].xp) r = i; return r; };
-  const rankOf = id => rankIn(RANKS, xpOf(id));
-  // the player ranks up from every kill with any weapon, and goes four ranks past Diamond
+  const rankOf = id => rankIn(ranksFor(id), xpOf(id));
+  // the player levels up from every kill with any weapon, from level 1 to Radiant 50.
+  // Levels 2–10 each give a perk and cost what the old tiers did, so PRANKS is now the perk tier (level - 1, up to 9)
   const PRANKS = [
     { name: 'Unranked', xp: 0, color: null },
     { name: 'Bronze', xp: 200, color: '#b07a45' },
@@ -631,7 +645,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     '+1 level on Field medic and Trauma plates · violet aura', 'Unlocks Overdrive · crimson aura',
     '+10% points from kills · golden aura', 'Come back once per run at half health · mythic aura'];
   const PLAYER_KEY = '_player';
-  const pRank = () => rankIn(PRANKS, xpOf(PLAYER_KEY));
+  const MAX_LV = 50;
+  // LV_XP[n] is the xp for level n; past level 10 each level costs a bit more than the last
+  const LV_XP = [0, 0].concat(PRANKS.slice(1).map(r => r.xp));
+  for (let n = 11; n <= MAX_LV; n++) LV_XP[n] = 26000 + 1500 * (n - 10) + 35 * (n - 10) ** 2;
+  const lvAt = xp => { let n = 1; while (n < MAX_LV && xp >= LV_XP[n + 1]) n++; return n; };
+  const pLevel = () => lvAt(xpOf(PLAYER_KEY));
+  const pRank = () => Math.min(PRANKS.length - 1, pLevel() - 1);
+  // a level from anywhere (friends, boards, the wire); older copies only sent the tier
+  const lvOf = (lv, prank) => clamp(Math.floor(Number(lv) || 0) || num(prank, PRANKS.length - 1) + 1, 1, MAX_LV);
+  const lvName = lv => lv >= MAX_LV ? `Radiant ${lv}` : String(lv);
+  // the level number gets brighter every 10 levels
+  const LV_COL = ['#c9d1d9', '#6bb8ff', '#5ee6a0', '#b46bff', '#ff9f43'];
+  const lvColor = lv => lv >= MAX_LV ? '#fff1b8' : LV_COL[Math.floor(lv / 10)];
+  const lvBadge = lv => `<span class="lvb${lv >= MAX_LV ? ' rad' : ''}" style="color:${lvColor(lv)}">${lvName(lv)}</span>`;
   const WIND = { id: 'p_wind', name: 'Second wind', label: 'Once per wave, a killing blow leaves you at', base: 160, max: 2, val: l => l ? `${l >= 2 ? 30 : 1} health` : 'nothing' };
   const OVER = { id: 'p_over', name: 'Overdrive', label: 'Damage while below 40% health', base: 170, max: 3, val: l => `+${15 * l}%` };
   const playerUps = () => (pRank() >= 4 ? [WIND] : []).concat(pRank() >= 7 ? [OVER] : []);
@@ -654,11 +681,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       SFX.wave();
       saveMastery();
     }
-    const pBefore = pRank();
+    const pBefore = pLevel();
     MAST[PLAYER_KEY] = xpOf(PLAYER_KEY) + n;
-    const pAfter = pRank();
+    const pAfter = pLevel();
     if (pAfter > pBefore) {
-      G.banner = { title: `${PRANKS[pAfter].name} rank`, sub: `You ranked up · ${PLAYER_PERKS[pAfter - 1]}`, t: 3 };
+      G.banner = pAfter >= MAX_LV ? { title: 'Radiant 50', sub: 'You reached the top level · radiant name tag', t: 3.5 }
+        : { title: `Level ${pAfter}`, sub: pAfter <= 10 ? `You levelled up · ${PLAYER_PERKS[pAfter - 2]}` : 'You levelled up', t: 3 };
       SFX.wave();
       saveMastery();
     }
@@ -707,8 +735,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { id: 'spec_gold', cat: 'Mastery', name: 'Specialist', desc: 'Get any weapon to Gold mastery', tier: 'medium' },
     { id: 'spec_dia', cat: 'Mastery', name: 'Diamond Specialist', desc: 'Get any weapon to Diamond mastery', tier: 'hard', reward: { tracer: 'gold' } },
     { id: 'arsenal', cat: 'Mastery', name: 'Arsenal', desc: 'Get every gun to Bronze mastery', tier: 'hard', prog: () => [GUNS.filter(g => rankOf(g.id) >= 1).length, GUNS.length], reward: { decal: 'star' } },
-    { id: 'legend', cat: 'Mastery', name: 'Legendary', desc: 'Reach Legend player rank', tier: 'extreme', reward: { title: 'Legend' } },
-    { id: 'mythic', cat: 'Mastery', name: 'Mythic', desc: 'Reach Mythic player rank', tier: 'legendary', reward: { title: 'Mythic', name: 'rainbow' } },
+    { id: 'legend', cat: 'Mastery', name: 'Legendary', desc: 'Reach player level 9', tier: 'extreme', reward: { title: 'Legend' } },
+    { id: 'mythic', cat: 'Mastery', name: 'Mythic', desc: 'Reach player level 10', tier: 'legendary', reward: { title: 'Mythic', name: 'rainbow' } },
+    { id: 'radiant', cat: 'Mastery', name: 'Radiant', desc: 'Reach Radiant 50, the top player level', tier: 'legendary', prog: () => [pLevel(), MAX_LV], reward: { title: 'the Radiant' } },
     { id: 'squad', cat: 'Versus & friends', name: 'Squad Up', desc: 'Add your first friend', tier: 'easy' },
     { id: 'rivals', cat: 'Versus & friends', name: 'Rivals', desc: 'Finish a versus match', tier: 'easy' },
     { id: 'pickpocket', cat: 'Versus & friends', name: 'Pickpocket', desc: 'Steal 1,000 or more score in a single takedown', tier: 'hard', reward: { name: 'emerald' } },
@@ -790,6 +819,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (GUNS.every(g => rankOf(g.id) >= 1)) unlock('arsenal');
     if (pRank() >= 8) unlock('legend');
     if (pRank() >= 9) unlock('mythic');
+    if (pLevel() >= MAX_LV) unlock('radiant');
   }
   function checkWave(n) {
     if (n >= 10) unlock('surv10');
@@ -838,11 +868,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const pr = pRank(), pBonus = (pr >= 3 && (u.id === 'hp' || u.id === 'speed')) + (pr >= 6 && (u.id === 'regen' || u.id === 'plates'));
     return (c && c[u.id] != null ? c[u.id] + (gr >= 2) : u.max) + pBonus;
   };
-  const magSize = () => Math.round(gunDef().mag * (1 + lvl('mag') / 3));
+  // the small boosts from Master mastery and up
+  const gunMastDmg = () => 1 + 0.05 * (gunRank() >= 6) + 0.05 * (gunRank() >= 9);
+  const meleeMastDmg = () => 1 + 0.05 * (meleeRank() >= 6) + 0.05 * (meleeRank() >= 9);
+  const magSize = () => Math.round(gunDef().mag * (1 + lvl('mag') / 3) * (gunRank() >= 8 ? 1.1 : 1));
   const fireTime = () => gunDef().fire * Math.pow(0.85, lvl('rate')) / (1 + 0.08 * lvl('x_sover'))
     / (1 + 0.15 * lvl('x_lspin') * Math.min(1, (G.player.spinT || 0) / 2));
-  const reloadTime = () => gunDef().reload * Math.pow(0.8, lvl('reload'));
-  const bulletDmg = () => gunDef().dmg * (1 + lvl('dmg')) * overdrive();
+  const reloadTime = () => gunDef().reload * Math.pow(0.8, lvl('reload')) * (gunRank() >= 7 ? 0.9 : 1);
+  const bulletDmg = () => gunDef().dmg * (1 + lvl('dmg')) * overdrive() * gunMastDmg();
   const moveSpeed = () => 240 * (G.player.melee ? meleeDef().move : gunDef().move + 0.05 * lvl('l_grip')) * (1 + 0.08 * lvl('speed'))
     * (pRank() >= 5 ? 1.05 : 1);
   const critChance = () => 0.08 * lvl('crit');
@@ -952,7 +985,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     frHelloAll();
     if (score <= (G.submitted || 0)) return;
     G.submitted = score;
-    const run = { score, wave: G.wave, gun: G.gun, melee: G.melee, endless: !!G.endless, vs: !!G.vs && !coop, diff, prank: pRank(), at: Date.now() };
+    const run = { score, wave: G.wave, gun: G.gun, melee: G.melee, endless: !!G.endless, vs: !!G.vs && !coop, diff, prank: pRank(), lv: pLevel(), at: Date.now() };
     if (coop) { run.n = 1 + G.vs.peers.length; run.cd = G.diff || 'normal'; }
     try { localStorage.setItem('nightops-board', JSON.stringify(trimBoard(localBoard().concat([run])))); } catch (e) {}
     // one row per player: only overwritten with a better score
@@ -1008,7 +1041,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // conns: open links by friend code; outgoing: requests we sent; pending: requests we received
   const FR = { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: '', timer: 0, view: false };
   const saveFriends = () => jset('nightops-friends', friends);
-  const myStats = () => ({ name: me.name || 'Player', prank: pRank(), best, wave: bestWave, bestA, waveA: bestWaveA, bestC, waveC: bestWaveC,
+  const myStats = () => ({ name: me.name || 'Player', prank: pRank(), lv: pLevel(), best, wave: bestWave, bestA, waveA: bestWaveA, bestC, waveC: bestWaveC,
     arc: arcaneUnlocked() ? 1 : 0, gun: chosenGun, prof: myProf() });
   // the profile summary friends can see
   function myProf() {
@@ -1059,7 +1092,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const f = friends[code];
     if (!f) return;
     f.name = cleanName(d.name) || f.name || 'Player';
-    f.prank = num(d.prank, PRANKS.length - 1); f.best = num(d.best, 1e9); f.wave = num(d.wave, 9999);
+    f.prank = num(d.prank, PRANKS.length - 1); f.lv = lvOf(d.lv, d.prank); f.best = num(d.best, 1e9); f.wave = num(d.wave, 9999);
     f.bestA = num(d.bestA, 1e9); f.waveA = num(d.waveA, 9999); f.arc = !!d.arc;
     f.bestC = num(d.bestC, 1e9); f.waveC = num(d.waveC, 9999);
     if (GUN[d.gun]) f.gun = d.gun;
@@ -1178,7 +1211,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   function cleanFriend(f) {
     f = f || {};
-    return { name: cleanName(f.name) || 'Player', prank: num(f.prank, PRANKS.length - 1), best: num(f.best, 1e9),
+    return { name: cleanName(f.name) || 'Player', prank: num(f.prank, PRANKS.length - 1), lv: lvOf(f.lv, f.prank), best: num(f.best, 1e9),
       wave: num(f.wave, 9999), gun: GUN[f.gun] ? f.gun : undefined, seen: num(f.seen, 1e14), prof: cleanProf(f.prof) || undefined };
   }
 
@@ -1224,7 +1257,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const mine = localBoard(), seen = new Set(mine.map(r => `${r.at}:${r.score}`));
       const rows = d.board.filter(r => r && typeof r === 'object').map(r => ({
         score: num(r.score, 1e9), wave: num(r.wave, 9999), gun: GUN[r.gun] ? r.gun : 'carbine', melee: MELEE_BY[r.melee] ? r.melee : 'machete',
-        endless: !!r.endless, vs: !!r.vs, diff: ['arcane', 'coop'].includes(r.diff) ? r.diff : 'normal', prank: num(r.prank, PRANKS.length - 1), at: num(r.at, 1e14),
+        endless: !!r.endless, vs: !!r.vs, diff: ['arcane', 'coop'].includes(r.diff) ? r.diff : 'normal', prank: num(r.prank, PRANKS.length - 1), lv: lvOf(r.lv, r.prank), at: num(r.at, 1e14),
         n: r.diff === 'coop' ? clamp(num(r.n, 4), 2, 4) : undefined, cd: r.diff === 'coop' && r.cd === 'arcane' ? 'arcane' : undefined }));
       jset('nightops-board', trimBoard(mine.concat(rows.filter(r => !seen.has(`${r.at}:${r.score}`)))));
     }
@@ -1234,7 +1267,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     // carry the best run of each difficulty onto the global leaderboards too (only does anything on claude.ai)
     for (const df of ['normal', 'arcane', 'coop']) {
       const top = localBoard().filter(r => (r.diff || 'normal') === df).sort((a, c) => c.score - a.score)[0];
-      if (top) postToBoard(Object.assign({}, top, { diff: df, prank: pRank(), at: top.at || Date.now() }));
+      if (top) postToBoard(Object.assign({}, top, { diff: df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
     }
     saveMastery();
     checkRanks(); checkStats();
@@ -1508,7 +1541,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const c = myCos();
       vsSend({ t: 'v.p', x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), a: +p.a.toFixed(2),
         hp: Math.ceil(p.hp), mh: p.maxHp, dd: p.dead ? 1 : 0, pt: p.prot > 0 ? 1 : 0, ml: p.melee ? 1 : 0, g: G.gun, m: G.melee,
-        gr: gunRank(), mr: meleeRank(), pk: pRank(), sw: +(p.swing || 0).toFixed(2), sd: p.swingDir || 1, sp: +(p.spinFx || 0).toFixed(2),
+        gr: gunRank(), mr: meleeRank(), pk: pRank(), lv: pLevel(), sw: +(p.swing || 0).toFixed(2), sd: p.swingDir || 1, sp: +(p.spinFx || 0).toFixed(2),
         fl: p.flash > 0 ? 1 : 0, hu: p.hurt > 0 ? 1 : 0, bk: v.banked, rk: v.risk, k: G.kills, sc: G.score,
         ti: c.title, nc: c.name, dc: c.decal, tr: c.tracer, ke: c.kill });
     }
@@ -1696,7 +1729,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       case 'v.p':
         Object.assign(o, { tx: +d.x || 0, ty: +d.y || 0, vx: +d.vx || 0, vy: +d.vy || 0, a: +d.a || 0, hp: num(d.hp, 9999), mh: num(d.mh, 9999) || 100,
           dead: !!d.dd, prot: d.pt ? 1 : 0, melee: !!d.ml, g: GUN[d.g] ? d.g : 'carbine', m: MELEE_BY[d.m] ? d.m : 'machete',
-          gr: num(d.gr, 5), mr: num(d.mr, 5), pr: num(d.pk, PRANKS.length - 1), swing: Math.max(o.swing || 0, +d.sw || 0), swingDir: d.sd < 0 ? -1 : 1,
+          gr: num(d.gr, RANKS.length - 1), mr: num(d.mr, RANKS.length - 1), pr: num(d.pk, PRANKS.length - 1), lv: lvOf(d.lv, d.pk), swing: Math.max(o.swing || 0, +d.sw || 0), swingDir: d.sd < 0 ? -1 : 1,
           spinFx: Math.max(o.spinFx || 0, +d.sp || 0), banked: num(d.bk, 1e9), risk: num(d.rk, 1e9), kills: num(d.k, 1e6), sc: num(d.sc, 1e9),
           ti: TITLES.includes(d.ti) ? d.ti : '', nc: COS.name[d.nc] ? d.nc : 'default', dc: COS.decal[d.dc] ? d.dc : 'none',
           tr: COS.tracer[d.tr] ? d.tr : 'amber', ke: COS.kill[d.ke] ? d.ke : 'blood' });
@@ -2502,7 +2535,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     SFX.swap();
   }
 
-  const meleeDmg = () => meleeDef().dmg * (1 + lvl('dmg')) * (1 + 0.35 * lvl('k_edge')) * overdrive();
+  const meleeDmg = () => meleeDef().dmg * (1 + lvl('dmg')) * (1 + 0.35 * lvl('k_edge')) * overdrive() * meleeMastDmg();
 
   // hits everything in an arc in front of you, and anything standing inside you
   function meleeStrike(arc, range, dmg) {
@@ -3591,7 +3624,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const localLook = () => ({ gun: gunDef(), mel: meleeDef(), gr: gunRank(), mr: meleeRank(), pr: pRank(), st: swingTime(), range: meleeRange(), decal: myCos().decal });
   function oppLook(o) {
     const mel = MELEE_BY[o.m] || MELEE[0];
-    return { gun: GUN[o.g] || GUNS[0], mel, gr: clamp(o.gr || 0, 0, 5), mr: clamp(o.mr || 0, 0, 5), pr: clamp(o.pr || 0, 0, PRANKS.length - 1),
+    return { gun: GUN[o.g] || GUNS[0], mel, gr: clamp(o.gr || 0, 0, RANKS.length - 1), mr: clamp(o.mr || 0, 0, RANKS.length - 1), pr: clamp(o.pr || 0, 0, PRANKS.length - 1),
       st: Math.min(0.2, mel.rate * 0.6), range: mel.range, decal: o.dc };
   }
   // a small symbol painted on top of the helmet (drawn in the soldier's rotated frame)
@@ -4223,19 +4256,35 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function drawOther(o) {
     const coop = G.vs.coop;
     drawPlayer(o, oppLook(o));
-    // name tag and health bar so you always know which soldier is them (green for a squadmate)
+    // health bar so you always know which soldier is them (green for a squadmate)
     const w = 40, f = clamp(o.hp / (o.mh || 100), 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(o.x - w / 2, o.y - 34, w, 5);
     ctx.fillStyle = coop ? '#5ad16b' : '#ff6b5a'; ctx.fillRect(o.x - w / 2, o.y - 34, w * f, 5);
-    // their name in their name-tag colour, with their title above it
-    ctx.textAlign = 'center';
+    drawTag(o.x, o.y, o.name || G.vs.name, o.nc, o.ti, o.lv || 1, coop ? '#b8f0c0' : '#ffb3a8');
+  }
+  // a name tag: the name in its name-tag colour, the level beside it in its own badge, and the title above
+  function drawTag(x, y, name, nc, ti, lv, plain) {
+    const t = performance.now();
+    ctx.textAlign = 'left';
     ctx.font = '600 13px "Chakra Petch", sans-serif';
-    ctx.fillStyle = o.nc === 'rainbow' ? `hsl(${(performance.now() / 11) % 360},90%,70%)` : NAME_COL[o.nc] || (coop ? '#b8f0c0' : '#ffb3a8');
-    ctx.fillText(o.name || G.vs.name, o.x, o.y - 40);
-    if (o.ti) {
+    const nw = ctx.measureText(name).width;
+    ctx.font = '600 11px "Share Tech Mono", monospace';
+    const lt = lvName(lv), bw = ctx.measureText(lt).width + 8, x0 = x - (nw + 5 + bw) / 2;
+    ctx.font = '600 13px "Chakra Petch", sans-serif';
+    ctx.fillStyle = nc === 'rainbow' ? `hsl(${(t / 11) % 360},90%,70%)` : NAME_COL[nc] || plain;
+    ctx.fillText(name, x0, y - 40);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(x0 + nw + 5, y - 52, bw, 15);
+    ctx.font = '600 11px "Share Tech Mono", monospace';
+    ctx.fillStyle = lvColor(lv);
+    if (lv >= MAX_LV) { ctx.save(); ctx.shadowColor = '#ffd36b'; ctx.shadowBlur = 6 + 4 * Math.sin(t / 250); }
+    ctx.fillText(lt, x0 + nw + 9, y - 41);
+    if (lv >= MAX_LV) ctx.restore();
+    if (ti) {
+      ctx.textAlign = 'center';
       ctx.font = '500 11px "Share Tech Mono", monospace';
-      ctx.fillStyle = 'rgba(231,226,212,0.75)'; ctx.fillText(o.ti, o.x, o.y - 54);
+      ctx.fillStyle = 'rgba(231,226,212,0.75)'; ctx.fillText(ti, x, y - 56);
     }
+    ctx.textAlign = 'center';
   }
 
   function render(now) {
@@ -4271,6 +4320,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     for (const e of G.enemies) drawEnemy(e);
     if (!p.dead) drawPlayer(p);
+    // in versus and co-op your own name tag shows too
+    if (G.vs && !p.dead) { const c = myCos(); drawTag(p.x, p.y, me.name || 'You', c.name, c.title, pLevel(), '#e7e2d4'); }
     if (G.vs) drawOpponent();
     ctx.lineCap = 'round';
     if (G.vs) {
@@ -4386,7 +4437,13 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     ui.achPop.hidden = false;
     achShownAt = now;
   }
-  function mastHud(id, label, fill, ranks = RANKS, name = (GUN[id] || MELEE_BY[id] || {}).name) {
+  function lvHud(label, fill) {
+    const xp = Math.floor(xpOf(PLAYER_KEY)), n = pLevel(), top = n >= MAX_LV;
+    setText(label, `You · ${top ? 'Radiant 50' : `Level ${n}`} · ${top ? `${xp} max` : `${xp}/${LV_XP[n + 1]}`}`);
+    fill.style.width = (top ? 1 : clamp((xp - LV_XP[n]) / (LV_XP[n + 1] - LV_XP[n]), 0, 1)) * 100 + '%';
+    fill.style.background = lvColor(n);
+  }
+  function mastHud(id, label, fill, ranks = ranksFor(id), name = (GUN[id] || MELEE_BY[id] || {}).name) {
     const xp = Math.floor(xpOf(id)), r = rankIn(ranks, xp), nx = ranks[r + 1];
     setText(label, `${name} · ${ranks[r].name} · ${nx ? `${xp}/${nx.xp}` : `${xp} max`}`);
     fill.style.width = (nx ? Math.max(0, Math.min(1, (xp - ranks[r].xp) / (nx.xp - ranks[r].xp))) : 1) * 100 + '%';
@@ -4425,7 +4482,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     setText(ui.mag, p.melee ? '—' : p.mag);
     setText(ui.res, p.res);
     setText(ui.ammoLabel, p.melee ? meleeDef().name : p.reload > 0 ? 'Reloading' : gunDef().name);
-    mastHud(PLAYER_KEY, ui.mPl, ui.mPlFill, PRANKS, 'You');
+    lvHud(ui.mPl, ui.mPlFill);
     mastHud(G.gun, ui.mGun, ui.mGunFill);
     mastHud(G.melee, ui.mMel, ui.mMelFill);
     const sp = p.melee ? specialDef() : null;
@@ -4505,7 +4562,19 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       ${masteryHtml(mm.id, meleePerks(mm))}
     </div>`;
   }
-  function masteryHtml(id, perks, ranks = RANKS, title = 'Mastery') {
+  // player level: a bar to the next level, and the perks from levels 2–10
+  function levelHtml() {
+    const xp = Math.floor(xpOf(PLAYER_KEY)), n = pLevel(), top = n >= MAX_LV;
+    const pct = top ? 100 : Math.round(100 * (xp - LV_XP[n]) / (LV_XP[n + 1] - LV_XP[n]));
+    const list = PLAYER_PERKS.map((p, i) => `<li class="${n >= i + 2 ? 'on' : ''}"><span style="color:${lvColor(i + 2)}">Level ${i + 2}</span>${p}</li>`).join('')
+      + `<li class="${top ? 'on' : ''}"><span style="color:${lvColor(MAX_LV)}">Radiant 50</span>The top level · radiant name tag and the Radiant achievement</li>`;
+    return `<div class="mastery">
+      <div class="mhead"><span class="label">Player level · ${lvBadge(n)}</span><span class="label">${top ? `${xp} XP · max level` : `${xp} / ${LV_XP[n + 1]} XP`}</span></div>
+      <div class="rbar"><i style="width:${pct}%"></i></div>
+      <ul class="ranks">${list}</ul>
+    </div>`;
+  }
+  function masteryHtml(id, perks, ranks = ranksFor(id), title = 'Mastery') {
     const xp = Math.floor(xpOf(id)), r = rankIn(ranks, xp), next = ranks[r + 1];
     const pct = next ? Math.round(100 * (xp - ranks[r].xp) / (next.xp - ranks[r].xp)) : 100;
     const list = perks.map((p, i) => `<li class="${i + 1 <= r ? 'on' : ''}"><span style="color:${ranks[i + 1].color}">${ranks[i + 1].name}</span>${p}</li>`).join('');
@@ -4537,17 +4606,16 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function boardHtml(rows, local) {
     if (!rows.length) return `<p class="note">${local ? 'No runs finished on this device yet.' : 'No scores yet. Finish a run to post the first one.'}</p>`;
     const body = rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="n">${i + 1}</td>
-      <td class="who">${esc(local ? new Date(r.at).toLocaleDateString() : r.name)}${PRANKS[Number(r.prank)] && Number(r.prank) > 0
-        ? ` <span class="rk" style="color:${PRANKS[Number(r.prank)].color}">${PRANKS[Number(r.prank)].name}</span>` : ''}${r.diff === 'coop' ? ` · ${clamp(num(r.n, 4), 2, 4)} players${r.cd === 'arcane' ? ' · Arcane' : ''}` : ''}${r.vs ? ' · Versus' : r.endless ? ' · Endless' : ''}</td>
+      <td class="who">${esc(local ? new Date(r.at).toLocaleDateString() : r.name)} ${lvBadge(lvOf(r.lv, r.prank))}${r.diff === 'coop' ? ` · ${clamp(num(r.n, 4), 2, 4)} players${r.cd === 'arcane' ? ' · Arcane' : ''}` : ''}${r.vs ? ' · Versus' : r.endless ? ' · Endless' : ''}</td>
       <td>${esc((GUN[r.gun] || GUNS[0]).name)}</td><td class="n">${r.wave}</td><td class="n">${Number(r.score).toLocaleString()}</td></tr>`).join('');
     return `<div class="boardwrap"><table class="board"><thead><tr><th class="n">#</th><th>${local ? 'Date' : 'Player'}</th><th>Gun</th><th class="n">Wave</th><th class="n">Score</th></tr></thead>
       <tbody>${body}</tbody></table></div>`;
   }
   function friendRows(diff) {
     const a = diff === 'arcane', c = diff === 'coop';
-    const rows = [{ name: me.name || 'You', score: bestFor(diff), wave: waveFor(diff), gun: chosenGun, prank: pRank(), me: true }]
+    const rows = [{ name: me.name || 'You', score: bestFor(diff), wave: waveFor(diff), gun: chosenGun, prank: pRank(), lv: pLevel(), me: true }]
       .concat(Object.values(friends).map(f => ({ name: f.name || 'Player', score: (a ? f.bestA : c ? f.bestC : f.best) || 0,
-        wave: (a ? f.waveA : c ? f.waveC : f.wave) || 0, gun: f.gun, prank: f.prank })));
+        wave: (a ? f.waveA : c ? f.waveC : f.wave) || 0, gun: f.gun, prank: f.prank, lv: f.lv })));
     return rows.filter(r => r.score > 0).sort((a, b) => b.score - a.score);
   }
   async function fillBoard() {
@@ -4561,9 +4629,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     if (boardTab === 'ach') {
       const c = myCos();
-      const mine = [{ name: me.name || 'You', pts: achPoints(), n: achCount(), ti: c.title, nc: c.name, me: true }]
+      const mine = [{ name: me.name || 'You', pts: achPoints(), n: achCount(), ti: c.title, nc: c.name, lv: pLevel(), me: true }]
         .concat(Object.values(friends).map(f => { const p = cleanProf(f.prof) || cleanProf({});
-          return { name: f.name || 'Player', pts: p.pts, n: p.ach.length, ti: p.ti, nc: p.nc }; }))
+          return { name: f.name || 'Player', pts: p.pts, n: p.ach.length, ti: p.ti, nc: p.nc, lv: lvOf(f.lv, f.prank) }; }))
         .sort((a, b) => b.pts - a.pts);
       el.innerHTML = `<span class="label">You and your friends</span>${achBoardHtml(mine)}<div id="achGlobal"></div>`;
       const g = await globalAchRows();
@@ -4587,10 +4655,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       <span class="row2"><button type="button" class="buy" data-fr="accept" data-code="${c}">Accept</button>
       <button type="button" class="ghost" data-fr="decline" data-code="${c}">Decline</button></span></li>`).join('');
     const list = Object.keys(friends).sort((a, b) => (friends[b].best || 0) - (friends[a].best || 0)).map(c => {
-      const f = friends[c], on = isOnline(c), pr = f.prank > 0 && PRANKS[f.prank], pf = f.prof && cleanProf(f.prof);
+      const f = friends[c], on = isOnline(c), pf = f.prof && cleanProf(f.prof);
       const seen = on ? 'online now' : f.seen ? `last seen ${new Date(f.seen).toLocaleDateString()}` : 'not seen yet';
       return `<li><span class="dot${on ? ' on' : ''}" title="${on ? 'Online' : 'Offline'}"></span>
-        <div class="info"><b>${nameHtml(f.name || 'Player', pf ? pf.nc : 'default')}${pr ? ` <span class="rk" style="color:${pr.color}">${pr.name}</span>` : ''}</b>
+        <div class="info"><b>${nameHtml(f.name || 'Player', pf ? pf.nc : 'default')} ${lvBadge(lvOf(f.lv, f.prank))}</b>
         ${pf && pf.ti ? `<span class="ttl">${esc(pf.ti)}</span>` : ''}
         <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0}${f.bestA ? ` · Arcane ${f.bestA.toLocaleString()}` : ''} · ${pf ? `${pf.pts} pts · ` : ''}${seen}</span></div>
         <button type="button" class="ghost" data-fr="profile" data-code="${c}">Profile</button>
@@ -4703,8 +4771,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     return `<div class="brief wide">
       <p class="eyebrow">${d.mine ? 'Your profile' : 'Friend profile'}${d.ti ? ` · ${esc(d.ti)}` : ''}</p>
-      <h1>${nameHtml(d.name, d.nc)}</h1>
-      <div class="wallet"><span class="label">${PRANKS[d.prank].name} rank · ${d.ach.length} / ${ACHS.length} achievements</span><b>${d.pts.toLocaleString()} pts</b></div>
+      <h1>${nameHtml(d.name, d.nc)} ${lvBadge(d.lv)}</h1>
+      <div class="wallet"><span class="label">${d.lv >= MAX_LV ? 'Radiant' : `Level ${d.lv}`} · ${d.ach.length} / ${ACHS.length} achievements</span><b>${d.pts.toLocaleString()} pts</b></div>
       <div class="tabs" role="tablist">${tabs.map(t => `<button type="button" class="tab" role="tab" data-act="ptab" data-tab="${t[0]}" aria-selected="${t[0] === tab}">${t[1]}</button>`).join('')}</div>
       ${body}
       <div class="actions"><button type="button" class="cta" data-act="${d.mine ? 'back' : 'frback'}">Back</button></div>
@@ -4724,26 +4792,26 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   function myProfileData() {
     const p = myProf();
-    return { mine: true, name: me.name || 'Player', ti: p.ti, nc: p.nc, pts: p.pts, prank: pRank(), ach: p.ach, st: p.st, mx: p.mx };
+    return { mine: true, name: me.name || 'Player', ti: p.ti, nc: p.nc, pts: p.pts, lv: pLevel(), ach: p.ach, st: p.st, mx: p.mx };
   }
   function friendProfileData(code) {
     const f = friends[code];
     if (!f) return null;
     const p = cleanProf(f.prof) || cleanProf({});
-    return { mine: false, name: f.name || 'Player', ti: p.ti, nc: p.nc, pts: p.pts, prank: clamp(f.prank || 0, 0, PRANKS.length - 1), ach: p.ach, st: p.st, mx: p.mx };
+    return { mine: false, name: f.name || 'Player', ti: p.ti, nc: p.nc, pts: p.pts, lv: lvOf(f.lv, f.prank), ach: p.ach, st: p.st, mx: p.mx };
   }
   function achBoardHtml(rows) {
     if (!rows.length) return '<p class="note">No achievement points yet.</p>';
     return `<div class="boardwrap"><table class="board"><thead><tr><th class="n">#</th><th>Player</th><th class="n">Achievements</th><th class="n">Points</th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="n">${i + 1}</td>
-        <td class="who">${nameHtml(r.name, r.nc)}${r.ti ? ` <span class="ttl">${esc(r.ti)}</span>` : ''}</td>
+        <td class="who">${nameHtml(r.name, r.nc)}${r.lv ? ` ${lvBadge(r.lv)}` : ''}${r.ti ? ` <span class="ttl">${esc(r.ti)}</span>` : ''}</td>
         <td class="n">${r.n}</td><td class="n">${r.pts.toLocaleString()}</td></tr>`).join('')}
     </tbody></table></div>`;
   }
   // global achievement points live in the page's database on claude.ai
   async function postPoints() {
     if (!lbDb || !lbMe) return;
-    try { await lbDb.doc('apoints/' + lbMe).set({ pts: achPoints(), n: achCount(), title: myCos().title, nc: myCos().name, prank: pRank(), at: Date.now() }); } catch (e) {}
+    try { await lbDb.doc('apoints/' + lbMe).set({ pts: achPoints(), n: achCount(), title: myCos().title, nc: myCos().name, prank: pRank(), lv: pLevel(), at: Date.now() }); } catch (e) {}
   }
   async function globalAchRows() {
     if (!lbDb) return null;
@@ -4752,7 +4820,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const rows = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
       const ps = lbUser ? await lbUser.profiles(rows.map(r => r.id)) : {};
       return rows.map(r => ({ name: (ps[r.id] && ps[r.id].name) || 'Player', pts: num(r.pts, 1e6), n: num(r.n, ACHS.length),
-        ti: TITLES.includes(r.title) ? r.title : '', nc: COS.name[r.nc] ? r.nc : 'default', me: r.id === lbMe }));
+        ti: TITLES.includes(r.title) ? r.title : '', nc: COS.name[r.nc] ? r.nc : 'default', lv: lvOf(r.lv, r.prank), me: r.id === lbMe }));
     } catch (e) { return null; }
   }
 
@@ -4799,7 +4867,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       o.innerHTML = `<div class="brief">
         <p class="eyebrow">Move between copies of the game</p>
         <h1>Transfer progress</h1>
-        <p class="lede">Your player rank, weapon mastery, best scores, saved run and friends live in this browser, separately for each copy of the game. Use a progress code to bring them across.</p>
+        <p class="lede">Your player level, weapon mastery, best scores, saved run and friends live in this browser, separately for each copy of the game. Use a progress code to bring them across.</p>
         <div class="frrow">
           <span class="label">1 · In the copy you’re moving from</span>
           <div class="row2"><button type="button" class="ghost" data-act="mkcode">Show my progress code</button></div>
@@ -5027,7 +5095,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         <h1>Night Ops</h1>
         <p class="lede">Hold landing zone LZ-7 for 30 waves. Hostiles come over every wall of the yard, and some of them shoot back. Every third wave is a one-on-one fight with a boss hog, and the biggest one waits at wave 30. Bosses hit straight through armor plates. Spend your points on upgrades between waves. In Endless the waves never stop, and the bosses come back stronger every lap.</p>
         ${KEYS_HTML}
-        ${masteryHtml(PLAYER_KEY, PLAYER_PERKS, PRANKS, 'Player rank')}
+        ${levelHtml()}
         ${loadoutHtml()}
         <div class="frrow">
           <span class="label">Difficulty</span>
@@ -5101,7 +5169,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         <p class="eyebrow">Wave ${G.wave} · ${G.score.toLocaleString()} points</p>
         <h1>Paused</h1>
         ${KEYS_HTML}
-        ${masteryHtml(PLAYER_KEY, PLAYER_PERKS, PRANKS, 'Player rank')}
+        ${levelHtml()}
         ${masteryHtml(G.gun, gunPerks(gunDef()))}
         ${masteryHtml(G.melee, meleePerks(meleeDef()))}
         <div class="actions">
@@ -5199,7 +5267,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       try {
         importProgress($('tfIn').value);
         G = freshState(chosenGun);
-        note.textContent = `Progress imported. You’re now ${PRANKS[pRank()].name} rank with a best score of ${best.toLocaleString()}.`;
+        note.textContent = `Progress imported. You’re now ${pLevel() >= MAX_LV ? 'Radiant 50' : `level ${pLevel()}`} with a best score of ${best.toLocaleString()}.`;
         $('tfIn').value = '';
       } catch (err) { note.textContent = 'That progress code didn’t work. Make sure you copied all of it.'; }
     }
@@ -5396,7 +5464,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     clearWave() { G.queue = []; G.enemies.forEach(e => { if (!e.dead) { e.lastBy = 'me'; e.reborn = true; kill(e); } }); },
     jump(n) { G.queue = []; G.enemies = []; G.shots = []; startWave(n); },
     hello: () => frHelloAll(),
-    hurt(n) { const p = G.player; p.prot = 0; p.iframe = 0; hurtPlayer(n, 0, 0, true); }
+    hurt(n) { const p = G.player; p.prot = 0; p.iframe = 0; hurtPlayer(n, 0, 0, true); },
+    ranks: () => ({ lv: pLevel(), pr: pRank(), gr: gunRank(), mr: meleeRank(), mag: magSize(), reload: +reloadTime().toFixed(3),
+      dmg: +bulletDmg().toFixed(3), mdmg: +meleeDmg().toFixed(3), lvXp: LV_XP })
   };
   if (hot && typeof hot.ready === 'function') hot.ready(start);
   else start(hot && hot.data ? hot.data : {});
