@@ -153,6 +153,32 @@ details summary { cursor: pointer; }
   display: flex; gap: 10px; align-items: center; flex-wrap: wrap; backdrop-filter: blur(4px);
 }
 .toast span { overflow-wrap: anywhere; }
+.nc-rainbow {
+  background: linear-gradient(90deg, #ff6b6b, #ffd36b, #5ee6a0, #6bb8ff, #b46bff, #ff6b6b); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: rainbow 3s linear infinite;
+}
+@keyframes rainbow { to { background-position: 200% 0; } }
+@media (prefers-reduced-motion: reduce) { .nc-rainbow { animation: none; } }
+.ttl { font: 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.tier { font: 10px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid currentColor; padding: 1px 6px; flex: none; }
+.pstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px 16px; }
+.pstats div { display: flex; flex-direction: column; gap: 2px; }
+.pstats b { font: 20px var(--mono); font-variant-numeric: tabular-nums; }
+.card.locked { opacity: 0.6; }
+.card.locked b { color: var(--muted); }
+.mrows { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 16px; font-size: 14px; }
+.mrows div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 4px 0; }
+.chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-b { font: 13px var(--display); color: var(--text); background: transparent; border: 1px solid var(--line); padding: 6px 10px; cursor: pointer; }
+.chip-b:hover:not(:disabled) { border-color: var(--amber); }
+.chip-b[aria-pressed="true"] { border-color: var(--amber); color: var(--amber); background: rgba(242, 177, 52, 0.1); }
+.chip-b:disabled { color: var(--muted); cursor: default; opacity: 0.55; }
+.achpop {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+  width: min(380px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--amber); padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 2px; pointer-events: none; backdrop-filter: blur(4px);
+}
+.achpop b { font-size: 18px; }
 .mastchip { min-width: 190px; }
 .mastchip .rbar { margin-bottom: 3px; }
 @media (max-width: 560px) { .mastchip { display: none; } }
@@ -299,6 +325,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 <div class="overlay" id="overlay"></div>
 
 <div class="toast" id="toast" hidden></div>
+
+<div class="achpop" id="achPop" role="status" hidden></div>
 
 <script>
 (() => {
@@ -521,7 +549,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     `Unlocks ${w.mast[0].name} · gold blade`, '+1 more level on every melee upgrade · platinum glow', `Unlocks ${w.mast[1].name} · diamond swing trail`];
   let MAST = {};
   try { MAST = JSON.parse(localStorage.getItem('nightops-mastery') || '{}') || {}; } catch (e) { MAST = {}; }
-  const saveMastery = () => { try { localStorage.setItem('nightops-mastery', JSON.stringify(MAST)); } catch (e) {} };
+  // lifetime stats ride along with every mastery save
+  const saveMastery = () => {
+    try { localStorage.setItem('nightops-mastery', JSON.stringify(MAST)); localStorage.setItem('nightops-stats', JSON.stringify(STATS)); } catch (e) {}
+  };
   const xpOf = id => MAST[id] || 0;
   const rankIn = (ranks, xp) => { let r = 0; for (let i = 1; i < ranks.length; i++) if (xp >= ranks[i].xp) r = i; return r; };
   const rankOf = id => rankIn(RANKS, xpOf(id));
@@ -573,6 +604,153 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       SFX.wave();
       saveMastery();
     }
+    if (after > before || pAfter > pBefore) checkRanks();
+  }
+
+  // ---------- achievements: every one has a tier; harder tiers give more points, cosmetics and titles ----------
+  const TIERS = {
+    easy: { name: 'Easy', pts: 10, color: '#a7ada3' },
+    medium: { name: 'Medium', pts: 25, color: '#5ad16b' },
+    hard: { name: 'Hard', pts: 50, color: '#6bb8ff' },
+    extreme: { name: 'Extreme', pts: 100, color: '#b46bff' },
+    legendary: { name: 'Legendary', pts: 250, color: '#ffd36b' }
+  };
+  let STATS = {};
+  try { STATS = JSON.parse(localStorage.getItem('nightops-stats') || '{}') || {}; } catch (e) { STATS = {}; }
+  STATS = Object.assign({ kills: 0, meleeKills: 0, crits: 0, bosses: {}, runs: 0, waves: 0, deaths: 0, vsPlayed: 0, vsWins: 0, vsLosses: 0, pvp: 0, time: 0 }, STATS);
+  if (!STATS.bosses || typeof STATS.bosses !== 'object') STATS.bosses = {};
+  const st = k => STATS[k] || 0;
+  const bossesBeaten = () => BOSSES.filter((b, i) => STATS.bosses[i] > 0).length;
+  const ACHS = [
+    { id: 'first_blood', cat: 'Combat', name: 'First Blood', desc: 'Kill your first hostile', tier: 'easy', prog: () => [st('kills'), 1] },
+    { id: 'crits', cat: 'Combat', name: 'Critical Thinking', desc: 'Land 100 critical hits', tier: 'medium', prog: () => [st('crits'), 100] },
+    { id: 'ext1', cat: 'Combat', name: 'Exterminator I', desc: 'Kill 1,000 hostiles', tier: 'medium', prog: () => [st('kills'), 1000] },
+    { id: 'ext2', cat: 'Combat', name: 'Exterminator II', desc: 'Kill 5,000 hostiles', tier: 'hard', prog: () => [st('kills'), 5000], reward: { tracer: 'crimson' } },
+    { id: 'melee500', cat: 'Combat', name: 'Up Close and Personal', desc: 'Get 500 melee kills', tier: 'hard', prog: () => [st('meleeKills'), 500], reward: { decal: 'skull' } },
+    { id: 'crowd', cat: 'Combat', name: 'Crowd Control', desc: 'Kill 10 hostiles with a single shockwave', tier: 'hard', reward: { kill: 'sparks' } },
+    { id: 'untouch', cat: 'Combat', name: 'Untouchable', desc: 'Clear a wave (wave 5 or later) without taking any damage', tier: 'hard', reward: { name: 'ice' } },
+    { id: 'ext3', cat: 'Combat', name: 'Exterminator III', desc: 'Kill 25,000 hostiles', tier: 'extreme', prog: () => [st('kills'), 25000], reward: { title: 'the Exterminator', kill: 'smoke' } },
+    { id: 'bacon', cat: 'Bosses', name: 'Bacon Bits', desc: 'Defeat Kunekune', tier: 'easy' },
+    { id: 'shield', cat: 'Bosses', name: 'Shield Breaker', desc: 'Break a boss’s melee-only shield', tier: 'medium' },
+    { id: 'swift', cat: 'Bosses', name: 'Swift Butcher', desc: 'Defeat a boss within 30 seconds of its wave starting', tier: 'hard', reward: { tracer: 'violet' } },
+    { id: 'pigslayer', cat: 'Bosses', name: 'Pig Slayer', desc: 'Defeat all 10 different bosses', tier: 'hard', prog: () => [bossesBeaten(), 10], reward: { decal: 'pig' } },
+    { id: 'w30', cat: 'Bosses', name: 'Pigmageddon Averted', desc: 'Survive and clear wave 30', tier: 'extreme', reward: { title: 'the Swine Slayer', name: 'rose' } },
+    { id: 'hogwild', cat: 'Bosses', name: 'Hog Wild', desc: 'Defeat a Mk II boss in Endless', tier: 'extreme', reward: { title: 'Hog Wild', kill: 'confetti' } },
+    { id: 'emperor', cat: 'Bosses', name: 'Emperor’s End', desc: 'Defeat Pigmageddon without taking any damage from it', tier: 'legendary', reward: { title: 'Swine Emperor', decal: 'crown', name: 'gold' } },
+    { id: 'surv10', cat: 'Survival', name: 'Survivor I', desc: 'Reach wave 10', tier: 'easy' },
+    { id: 'surv20', cat: 'Survival', name: 'Survivor II', desc: 'Reach wave 20', tier: 'medium' },
+    { id: 'second', cat: 'Survival', name: 'Second Chance', desc: 'Get saved by Second wind', tier: 'medium' },
+    { id: 'end40', cat: 'Survival', name: 'Endless Night I', desc: 'Reach wave 40 in Endless', tier: 'hard', reward: { tracer: 'ice' } },
+    { id: 'end60', cat: 'Survival', name: 'Endless Night II', desc: 'Reach wave 60 in Endless', tier: 'extreme', reward: { title: 'Night Owl' } },
+    { id: 'ironwill', cat: 'Survival', name: 'Iron Will', desc: 'Clear wave 30 without buying a Med kit', tier: 'extreme', reward: { title: 'Iron Will' } },
+    { id: 'end90', cat: 'Survival', name: 'Endless Night III', desc: 'Reach wave 90 in Endless', tier: 'legendary', reward: { title: 'the Undying', kill: 'ember' } },
+    { id: 'spec_gold', cat: 'Mastery', name: 'Specialist', desc: 'Get any weapon to Gold mastery', tier: 'medium' },
+    { id: 'spec_dia', cat: 'Mastery', name: 'Diamond Specialist', desc: 'Get any weapon to Diamond mastery', tier: 'hard', reward: { tracer: 'gold' } },
+    { id: 'arsenal', cat: 'Mastery', name: 'Arsenal', desc: 'Get every gun to Bronze mastery', tier: 'hard', prog: () => [GUNS.filter(g => rankOf(g.id) >= 1).length, GUNS.length], reward: { decal: 'star' } },
+    { id: 'legend', cat: 'Mastery', name: 'Legendary', desc: 'Reach Legend player rank', tier: 'extreme', reward: { title: 'Legend' } },
+    { id: 'mythic', cat: 'Mastery', name: 'Mythic', desc: 'Reach Mythic player rank', tier: 'legendary', reward: { title: 'Mythic', name: 'rainbow' } },
+    { id: 'squad', cat: 'Versus & friends', name: 'Squad Up', desc: 'Add your first friend', tier: 'easy' },
+    { id: 'rivals', cat: 'Versus & friends', name: 'Rivals', desc: 'Finish a versus match', tier: 'easy' },
+    { id: 'pickpocket', cat: 'Versus & friends', name: 'Pickpocket', desc: 'Steal 1,000 or more score in a single takedown', tier: 'hard', reward: { name: 'emerald' } },
+    { id: 'champ', cat: 'Versus & friends', name: 'Champion', desc: 'Win 10 versus matches', tier: 'extreme', prog: () => [st('vsWins'), 10], reward: { title: 'Champion' } },
+    { id: 'comeback', cat: 'Versus & friends', name: 'Comeback', desc: 'Win a versus match after being behind when wave 20 started', tier: 'extreme', reward: { title: 'the Comeback Kid' } }
+  ];
+  const ACH_BY = Object.fromEntries(ACHS.map(a => [a.id, a]));
+  const TITLES = ACHS.filter(a => a.reward && a.reward.title).map(a => a.reward.title);
+  let ACH = {};
+  try { ACH = JSON.parse(localStorage.getItem('nightops-ach') || '{}') || {}; } catch (e) { ACH = {}; }
+  const saveAch = () => { try { localStorage.setItem('nightops-ach', JSON.stringify(ACH)); } catch (e) {} };
+  const achPoints = () => ACHS.reduce((s, a) => s + (ACH[a.id] ? TIERS[a.tier].pts : 0), 0);
+  const achCount = () => ACHS.filter(a => ACH[a.id]).length;
+
+  // cosmetics: the first of each list is always yours; the rest come from achievements
+  const COS = {
+    tracer: { amber: 'Amber', crimson: 'Crimson', violet: 'Violet', ice: 'Ice', gold: 'Gold' },
+    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', rainbow: 'Rainbow' },
+    decal: { none: 'None', skull: 'Skull', pig: 'Pig', star: 'Star', crown: 'Crown' },
+    kill: { blood: 'Default', sparks: 'Sparks', smoke: 'Smoke', confetti: 'Confetti', ember: 'Embers' }
+  };
+  const COS_LABEL = { title: 'Title', name: 'Name colour', tracer: 'Bullet tracers', decal: 'Helmet decal', kill: 'Kill effect' };
+  const TRACER_COL = {
+    amber: ['rgba(242,177,52,0.35)', '#ffe2a0'], crimson: ['rgba(230,60,60,0.45)', '#ffb0a8'], violet: ['rgba(170,110,255,0.45)', '#e2d0ff'],
+    ice: ['rgba(127,232,255,0.4)', '#d8fbff'], gold: ['rgba(255,210,80,0.5)', '#fff1b8']
+  };
+  const NAME_COL = { ice: '#9fe7ff', rose: '#ff8fb1', emerald: '#5ee6a0', gold: '#ffd36b' };
+  let MYCOS = {};
+  try { MYCOS = JSON.parse(localStorage.getItem('nightops-cos') || '{}') || {}; } catch (e) { MYCOS = {}; }
+  const saveCos = () => { try { localStorage.setItem('nightops-cos', JSON.stringify(MYCOS)); } catch (e) {} };
+  // which achievement unlocks a cosmetic (null = always unlocked)
+  function cosSource(kind, val) {
+    if (kind === 'title') return val ? ACHS.find(a => a.reward && a.reward.title === val) : null;
+    if (val === Object.keys(COS[kind])[0]) return null;
+    return ACHS.find(a => a.reward && a.reward[kind] === val);
+  }
+  const cosOwned = (kind, val) => { const a = cosSource(kind, val); return a === null || !!(a && ACH[a.id]); };
+  // what you actually wear, falling back to the defaults if something isn't unlocked
+  function myCos() {
+    const c = { title: '', tracer: 'amber', name: 'default', decal: 'none', kill: 'blood' };
+    for (const k of Object.keys(c)) if (MYCOS[k] != null && (k === 'title' ? TITLES.includes(MYCOS[k]) || MYCOS[k] === '' : COS[k][MYCOS[k]]) && cosOwned(k, MYCOS[k])) c[k] = MYCOS[k];
+    return c;
+  }
+
+  let achQueue = [], achShownAt = 0;
+  function unlock(id) {
+    const a = ACH_BY[id];
+    if (!a || ACH[id]) return;
+    ACH[id] = Date.now();
+    saveAch();
+    achQueue.push(a);
+    SFX.wave();
+    postPoints();
+    if (typeof frHelloAll === 'function') frHelloAll();
+  }
+  function checkStats() {
+    if (st('kills') >= 1) unlock('first_blood');
+    if (st('kills') >= 1000) unlock('ext1');
+    if (st('kills') >= 5000) unlock('ext2');
+    if (st('kills') >= 25000) unlock('ext3');
+    if (st('meleeKills') >= 500) unlock('melee500');
+    if (st('crits') >= 100) unlock('crits');
+    if (st('vsWins') >= 10) unlock('champ');
+    if (bossesBeaten() >= 10) unlock('pigslayer');
+  }
+  function checkRanks() {
+    const all = GUNS.map(g => g.id).concat(MELEE.map(m => m.id));
+    if (all.some(id => rankOf(id) >= 3)) unlock('spec_gold');
+    if (all.some(id => rankOf(id) >= 5)) unlock('spec_dia');
+    if (GUNS.every(g => rankOf(g.id) >= 1)) unlock('arsenal');
+    if (pRank() >= 8) unlock('legend');
+    if (pRank() >= 9) unlock('mythic');
+  }
+  function checkWave(n) {
+    if (n >= 10) unlock('surv10');
+    if (n >= 20) unlock('surv20');
+    if (G.endless && n >= 40) unlock('end40');
+    if (G.endless && n >= 60) unlock('end60');
+    if (G.endless && n >= 90) unlock('end90');
+  }
+  // a kill you get credit for (in versus the host tells the guest about theirs)
+  function onMyKill(melee, bossIdx, bossLoop) {
+    STATS.kills++;
+    if (melee) STATS.meleeKills++;
+    if (bossIdx != null && bossIdx >= 0) {
+      STATS.bosses[bossIdx] = (STATS.bosses[bossIdx] || 0) + 1;
+      if (bossIdx === 0) unlock('bacon');
+      if (bossLoop >= 1) unlock('hogwild');
+      if (G.time - (G.bossT0 || 0) < 30) unlock('swift');
+      if (bossIdx === BOSSES.length - 1 && !G.bossHit) unlock('emperor');
+    }
+    checkStats();
+  }
+  function onWaveSurvived() {
+    STATS.waves++;
+    if (G.wave >= 5 && !G.waveHurt) unlock('untouch');
+  }
+  // called at every wave start, for host, guest and solo alike
+  function onWaveStart(n) {
+    G.waveHurt = false;
+    if (n % 3 === 0) { G.bossHit = false; G.bossT0 = G.time || 0; }
+    checkWave(n);
   }
   const lvl = id => (G.up && G.up[id]) || 0;
   // the weapon decides how far each shared upgrade can go
@@ -716,7 +894,28 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // conns: open links by friend code; outgoing: requests we sent; pending: requests we received
   const FR = { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: '', timer: 0, view: false };
   const saveFriends = () => jset('nightops-friends', friends);
-  const myStats = () => ({ name: me.name || 'Player', prank: pRank(), best, wave: bestWave, gun: chosenGun });
+  const myStats = () => ({ name: me.name || 'Player', prank: pRank(), best, wave: bestWave, gun: chosenGun, prof: myProf() });
+  // the profile summary friends can see
+  function myProf() {
+    const c = myCos(), mx = {};
+    for (const id of GUNS.map(g => g.id).concat(MELEE.map(m => m.id), [PLAYER_KEY])) mx[id] = Math.round(xpOf(id));
+    return { pts: achPoints(), ti: c.title, nc: c.name, ach: ACHS.filter(a => ACH[a.id]).map(a => a.id), mx,
+      st: { kills: st('kills'), meleeKills: st('meleeKills'), crits: st('crits'), bosses: Object.values(STATS.bosses).reduce((s, n) => s + n, 0),
+        distinct: bossesBeaten(), runs: st('runs'), waves: st('waves'), deaths: st('deaths'), vsWins: st('vsWins'), vsLosses: st('vsLosses'),
+        pvp: st('pvp'), time: Math.round(st('time')), best, bestWave } };
+  }
+  // a friend's profile arrives over the wire, so every field is checked and clamped
+  function cleanProf(p) {
+    if (!p || typeof p !== 'object') return null;
+    const s = p.st && typeof p.st === 'object' ? p.st : {}, out = { st: {}, mx: {} };
+    for (const k of ['kills', 'meleeKills', 'crits', 'bosses', 'distinct', 'runs', 'waves', 'deaths', 'vsWins', 'vsLosses', 'pvp', 'time', 'best', 'bestWave']) out.st[k] = num(s[k], 1e9);
+    out.ach = Array.isArray(p.ach) ? p.ach.filter(id => ACH_BY[id]).slice(0, ACHS.length) : [];
+    out.pts = out.ach.reduce((t, id) => t + TIERS[ACH_BY[id].tier].pts, 0);
+    out.ti = TITLES.includes(p.ti) ? p.ti : '';
+    out.nc = COS.name[p.nc] ? p.nc : 'default';
+    if (p.mx && typeof p.mx === 'object') for (const id of GUNS.map(g => g.id).concat(MELEE.map(m => m.id), [PLAYER_KEY])) out.mx[id] = num(p.mx[id], 1e9);
+    return out;
+  }
   const isOnline = code => !!(FR.conns[code] && FR.conns[code].open);
 
   function frSend(code, msg) {
@@ -746,6 +945,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     f.name = cleanName(d.name) || f.name || 'Player';
     f.prank = num(d.prank, PRANKS.length - 1); f.best = num(d.best, 1e9); f.wave = num(d.wave, 9999);
     if (GUN[d.gun]) f.gun = d.gun;
+    const prof = cleanProf(d.prof);
+    if (prof) f.prof = prof;
     f.seen = Date.now();
     saveFriends();
   }
@@ -760,6 +961,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       delete FR.outgoing[code];
       friends[code] = { name: 'Player' };
       frStats(code, d);
+      unlock('squad');
       FR.note = `${friends[code].name} accepted your friend request.`;
     } else if (d.t === 'dec' && FR.outgoing[code]) {
       delete FR.outgoing[code];
@@ -776,6 +978,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     delete FR.pending[code];
     friends[code] = { name, prank: 0, best: 0, wave: 0, seen: Date.now() };
     saveFriends();
+    unlock('squad');
     frSend(code, Object.assign({ t: 'acc' }, myStats()));
     frToast(); frRefresh();
   }
@@ -858,13 +1061,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function cleanFriend(f) {
     f = f || {};
     return { name: cleanName(f.name) || 'Player', prank: num(f.prank, PRANKS.length - 1), best: num(f.best, 1e9),
-      wave: num(f.wave, 9999), gun: GUN[f.gun] ? f.gun : undefined, seen: num(f.seen, 1e14) };
+      wave: num(f.wave, 9999), gun: GUN[f.gun] ? f.gun : undefined, seen: num(f.seen, 1e14), prof: cleanProf(f.prof) || undefined };
   }
 
   // ---------- progress transfer: one code carries mastery, bests, saved run and friends between copies of the game ----------
   const PROGRESS_TAG = 'NOPS1.';
   const progressCode = () => PROGRESS_TAG + btoa(unescape(encodeURIComponent(JSON.stringify({
-    mastery: MAST, best, bestWave, board: localBoard(), run: loadRun(), friends, gun: chosenGun, melee: chosenMelee
+    mastery: MAST, best, bestWave, board: localBoard(), run: loadRun(), friends, gun: chosenGun, melee: chosenMelee,
+    ach: ACH, stats: STATS, cos: MYCOS
   }))));
   // merges rather than replaces, keeping the better of each, so neither copy loses anything
   function importProgress(raw) {
@@ -878,6 +1082,23 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       }
       saveMastery();
     }
+    // achievements: union, keeping the earliest unlock date
+    if (d.ach && typeof d.ach === 'object') {
+      for (const id of Object.keys(d.ach)) if (ACH_BY[id]) { const t = num(d.ach[id], 1e14) || Date.now(); ACH[id] = ACH[id] ? Math.min(ACH[id], t) : t; }
+      saveAch();
+    }
+    // lifetime stats: the higher of each
+    if (d.stats && typeof d.stats === 'object') {
+      for (const k of Object.keys(STATS)) if (k !== 'bosses') STATS[k] = Math.max(STATS[k] || 0, num(d.stats[k], 1e12));
+      if (d.stats.bosses && typeof d.stats.bosses === 'object') {
+        for (let i = 0; i < BOSSES.length; i++) STATS.bosses[i] = Math.max(STATS.bosses[i] || 0, num(d.stats.bosses[i], 1e9));
+      }
+    }
+    // cosmetics only come across if you haven't picked any here yet
+    if (d.cos && typeof d.cos === 'object' && !Object.keys(MYCOS).length) {
+      for (const k of Object.keys(COS_LABEL)) if (typeof d.cos[k] === 'string') MYCOS[k] = d.cos[k];
+      saveCos();
+    }
     best = Math.max(best, num(d.best, 1e9)); saveBest();
     bestWave = Math.max(bestWave, num(d.bestWave, 9999)); jset('nightops-bestwave', bestWave);
     if (Array.isArray(d.board)) {
@@ -890,6 +1111,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     // carry the best run onto the global leaderboard too (only does anything on claude.ai)
     const top = localBoard()[0];
     if (top) postToBoard(Object.assign({}, top, { prank: pRank(), at: top.at || Date.now() }));
+    saveMastery();
+    checkRanks(); checkStats();
+    if (Object.keys(friends).length) unlock('squad');
+    postPoints();
     // a saved run only comes across if this copy doesn't already have one
     if (d.run && d.run.player && Array.isArray(d.run.enemies) && !loadRun()) jset(RUN_KEY, d.run);
     if (d.friends && typeof d.friends === 'object') {
@@ -1001,7 +1226,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const credit = v.lastHitBy === 'opp' || v.oppDmg > 0.4 * p.maxHp;
     const how = v.lastHitBy === 'opp' ? 'last hit' : `${Math.round(100 * v.oppDmg / p.maxHp)}% damage`;
     const stolen = credit ? v.risk : 0, lost = v.risk;
-    v.risk = 0; v.deaths++;
+    v.risk = 0; v.deaths++; STATS.deaths++;
     p.dead = true; p.hp = 0; p.dot = 0; mouse.down = false;
     blood(p.x, p.y, 0, 0, 24); stain(p.x, p.y, 18); boom(p.x, p.y, 60, '#d8453a');
     G.banner = credit
@@ -1027,6 +1252,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     let sub = 'You were down, so nothing to bank';
     if (!p.dead) {
       const bonus = rounds(36);
+      onWaveSurvived();
       p.res += bonus; addScore(G.wave * 25);
       sub = `Banked ${v.risk.toLocaleString()} · +${bonus} rounds`;
     }
@@ -1037,6 +1263,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   function vsAfterClear() {
     mouse.down = false;
+    if (G.wave === 30 && !G.player.dead) { unlock('w30'); if (!G.boughtMed) unlock('ironwill'); }
     if (G.wave >= 30 && !G.endless) { G.state = 'vsdecide'; G.vs.keep = null; showOverlay('vsdecide'); }
     else vsOpenShop();
   }
@@ -1075,6 +1302,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     v.over = true;
     v.result = { reason, my, op, win: reason === 'ff-opp' || reason === 'disconnect' ? 1 : reason === 'ff-me' ? -1 : Math.sign(my - op) };
     G.state = 'vsover'; mouse.down = false;
+    // a dropped connection doesn't count towards your record
+    if (reason !== 'disconnect') {
+      STATS.vsPlayed++;
+      if (v.result.win > 0) STATS.vsWins++; else if (v.result.win < 0) STATS.vsLosses++;
+      unlock('rivals');
+      if (v.result.win > 0 && v.behind20) unlock('comeback');
+      checkStats();
+    }
     saveMastery();
     if (my > best) { best = my; saveBest(); }
     submitRun();
@@ -1096,10 +1331,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     v.sendT -= dt;
     if (v.sendT <= 0) {
       v.sendT = 0.05;
+      const c = myCos();
       vsSend({ t: 'v.p', x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), a: +p.a.toFixed(2),
         hp: Math.ceil(p.hp), mh: p.maxHp, dd: p.dead ? 1 : 0, pt: p.prot > 0 ? 1 : 0, ml: p.melee ? 1 : 0, g: G.gun, m: G.melee,
         gr: gunRank(), mr: meleeRank(), pk: pRank(), sw: +(p.swing || 0).toFixed(2), sd: p.swingDir || 1, sp: +(p.spinFx || 0).toFixed(2),
-        fl: p.flash > 0 ? 1 : 0, hu: p.hurt > 0 ? 1 : 0, bk: v.banked, rk: v.risk, k: G.kills });
+        fl: p.flash > 0 ? 1 : 0, hu: p.hurt > 0 ? 1 : 0, bk: v.banked, rk: v.risk, k: G.kills,
+        ti: c.title, nc: c.name, dc: c.decal, tr: c.tracer, ke: c.kill });
     }
     const fresh = [];
     for (const b of G.bullets) if (!b.sent) {
@@ -1253,7 +1490,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         Object.assign(o, { tx: +d.x || 0, ty: +d.y || 0, vx: +d.vx || 0, vy: +d.vy || 0, a: +d.a || 0, hp: num(d.hp, 9999), mh: num(d.mh, 9999) || 100,
           dead: !!d.dd, prot: d.pt ? 1 : 0, melee: !!d.ml, g: GUN[d.g] ? d.g : 'carbine', m: MELEE_BY[d.m] ? d.m : 'machete',
           gr: num(d.gr, 5), mr: num(d.mr, 5), pr: num(d.pk, PRANKS.length - 1), swing: Math.max(o.swing || 0, +d.sw || 0), swingDir: d.sd < 0 ? -1 : 1,
-          spinFx: Math.max(o.spinFx || 0, +d.sp || 0), banked: num(d.bk, 1e9), risk: num(d.rk, 1e9), kills: num(d.k, 1e6) });
+          spinFx: Math.max(o.spinFx || 0, +d.sp || 0), banked: num(d.bk, 1e9), risk: num(d.rk, 1e9), kills: num(d.k, 1e6),
+          ti: TITLES.includes(d.ti) ? d.ti : '', nc: COS.name[d.nc] ? d.nc : 'default', dc: COS.decal[d.dc] ? d.dc : 'none',
+          tr: COS.tracer[d.tr] ? d.tr : 'amber', ke: COS.kill[d.ke] ? d.ke : 'blood' });
         if (d.fl) o.flash = 0.05;
         if (d.hu) o.hurt = 0.2;
         if (!o.seen0) { o.x = o.tx; o.y = o.ty; o.seen0 = true; }
@@ -1295,6 +1534,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         if (d.credit) {
           const bonus = killBonus();
           v.risk += stolen; addScore(bonus); v.pvpKills++;
+          STATS.pvp++;
+          if (stolen >= 1000) unlock('pickpocket');
           gainXp(p.melee ? G.melee : G.gun, 25);
           G.banner = { title: `You took down ${v.name}`, sub: `Stole ${stolen.toLocaleString()} + ${bonus} bonus · ${how}`, t: 2.6 };
         } else G.banner = { title: `${v.name} went down`, sub: 'Their at-risk score is lost', t: 2 };
@@ -1315,8 +1556,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         const pts = Math.round(Math.min(1e6, +d.pts || 0) * (pRank() >= 8 ? 1.1 : 1));
         addScore(pts); G.kills++;
         gainXp(d.ml ? G.melee : G.gun, num(d.xp, 30));
+        onMyKill(!!d.ml, d.boss ? clamp(num(d.bi, 99), 0, BOSSES.length - 1) : null, num(d.bl, 99));
         if (lvl('l_belt')) p.mag = Math.min(magSize(), p.mag + lvl('l_belt'));
         floatText(+d.x || 0, +d.y || 0, '+' + pts, '#f2b134');
+        if (!d.boss) killFx(+d.x || 0, +d.y || 0, myCos().kill, true);
         if (d.boss) G.banner = { title: 'Boss defeated', sub: `You landed the final blow · +${pts.toLocaleString()} points`, t: 2.4 };
         break;
       }
@@ -1337,6 +1580,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         G.wave = num(d.n, 9999); G.endless = !!d.en; G.clearing = false;
         if (d.bn && typeof d.bn === 'object') G.banner = { title: String(d.bn.title || '').slice(0, 60), sub: String(d.bn.sub || '').slice(0, 90), t: Math.min(4, +d.bn.t || 2) };
         vsRespawn();
+        onWaveStart(G.wave);
+        if (G.wave === 20) v.behind20 = v.banked + v.risk < (o.banked || 0) + (o.risk || 0);
         if (G.state === 'shop' || G.state === 'vsdecide') { G.state = 'playing'; ui.overlay.hidden = true; }
         SFX.wave();
         break;
@@ -1633,6 +1878,21 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       addPart({ k: 'spark', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.12, 0.25), max: 0.25, drag: 8 });
     }
   }
+  // the burst a hostile makes when you kill it, picked from your cosmetics
+  function killFx(x, y, fx, noBlood) {
+    if (fx === 'sparks') {
+      for (let i = 0; i < 18; i++) { const a = rand(0, Math.PI * 2), s = rand(120, 340); addPart({ k: 'spark', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.2, 0.45), max: 0.45, drag: 5, color: '#ffd36b' }); }
+    } else if (fx === 'smoke') {
+      for (let i = 0; i < 9; i++) addPart({ k: 'puff', x: x + rand(-8, 8), y: y + rand(-8, 8), vx: rand(-30, 30), vy: rand(-50, -10), life: rand(0.6, 1), max: 1, drag: 1.5, size: rand(6, 11) });
+    } else if (fx === 'confetti') {
+      const cols = ['#ff6b6b', '#ffd36b', '#5ee6a0', '#6bb8ff', '#b46bff'];
+      for (let i = 0; i < 22; i++) { const a = rand(0, Math.PI * 2), s = rand(80, 260); addPart({ k: 'conf', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.6, 1.1), max: 1.1, drag: 3, rot: rand(0, 6), vr: rand(-12, 12), color: cols[i % cols.length] }); }
+    } else if (fx === 'ember') {
+      for (let i = 0; i < 16; i++) { const a = rand(0, Math.PI * 2), s = rand(40, 140); addPart({ k: 'spark', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.5, 0.9), max: 0.9, drag: 2, color: i % 2 ? '#ff9a3c' : '#ff5a3c' }); }
+      addPart({ k: 'ring', x, y, r: 30, life: 0.35, max: 0.35, vx: 0, vy: 0, drag: 0, color: '#ff7a3c' });
+    }
+    if (!noBlood || fx !== 'blood') blood(x, y, rand(-1, 1), rand(-1, 1), fx === 'blood' ? 14 : 5);
+  }
   function floatText(x, y, text, color) {
     addPart({ k: 'text', x, y, vx: 0, vy: -40, life: 1, max: 1, text, color, drag: 0 });
   }
@@ -1693,7 +1953,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   function shockwave(x, y, max, dmg) {
-    G.waves.push({ x, y, r: 8, max, dmg, hit: [] });
+    G.waves.push({ x, y, r: 8, max, dmg, hit: [], kills: 0 });
     if (G.vs) vsSend({ t: 'v.wv', x, y, max, d: dmg });
     if (!reduceMotion) G.shake = Math.min(14, G.shake + max / 30);
     SFX.boom();
@@ -1836,6 +2096,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         : { title: `Wave ${n}`, sub: `${total} hostiles inbound`, t: 2 };
     }
     SFX.wave();
+    onWaveStart(n);
+    if (G.vs && n === 20) G.vs.behind20 = G.vs.banked + G.vs.risk < (G.vs.opp.banked || 0) + (G.vs.opp.risk || 0);
     if (isHost()) {
       vsRespawn();
       vsSend({ t: 'v.ws', n, bn: G.banner, en: G.endless ? 1 : 0 });
@@ -1892,11 +2154,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const xp = e.type === 'boss' ? 30 : e.type === 'tank' || e.type === 'plated' ? 3 : 1;
     const base = e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) : d.pts * (1 + (G.wave - 1) * 0.15);
     const pts = Math.round(base * (pRank() >= 8 ? 1.1 : 1));
-    if (theirs) vsSend({ t: 'v.kill', pts: base, xp, ml: e.meleeHit ? 1 : 0, x: e.x, y: e.y, boss: e.type === 'boss' ? 1 : 0 });
+    if (theirs) vsSend({ t: 'v.kill', pts: base, xp, ml: e.meleeHit ? 1 : 0, x: e.x, y: e.y, boss: e.type === 'boss' ? 1 : 0, bi: e.boss, bl: e.loop || 0 });
     else {
       if (lvl('l_belt')) G.player.mag = Math.min(magSize(), G.player.mag + lvl('l_belt'));
       gainXp(e.meleeHit ? G.melee : G.gun, xp);
       addScore(pts); G.kills++;
+      onMyKill(e.meleeHit, e.type === 'boss' ? e.boss : null, e.loop || 0);
     }
     if (e.type === 'boss') {
       G.shots = [];
@@ -1910,7 +2173,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       return;
     }
     if (!theirs) floatText(e.x, e.y - e.r, '+' + pts, '#f2b134');
-    blood(e.x, e.y, rand(-1, 1), rand(-1, 1), 14);
+    killFx(e.x, e.y, theirs ? G.vs.opp.ke : myCos().kill);
     stain(e.x, e.y, e.r);
     SFX.kill();
     const p = G.player;
@@ -1924,6 +2187,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const bl = Math.hypot(b.vx, b.vy) || 1, nx = b.vx / bl, ny = b.vy / bl;
     let dealt = b.dmg || bulletDmg();
     if (b.exec && e.hp < e.max * 0.35) dealt *= 1 + 0.5 * b.exec;
+    if (b.crit && !b.opp) { STATS.crits++; if (STATS.crits === 100) checkStats(); }
     // the guest only shows the hit; the host applies it to the real hostile
     if (isGuest()) {
       G.vs.hitsOut.push([e.id, +dealt.toFixed(2), b.melee ? 1 : 0, b.burn || 0, b.bleed || 0, b.chill || 0, b.stun || 0, b.kb || 1, +nx.toFixed(2), +ny.toFixed(2)]);
@@ -1954,6 +2218,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (!b || !b.phases || e.hp <= 0) return;
     e.phaseDmg = (e.phaseDmg || 0) + dmg;
     if (e.phaseDmg < phaseNeed(e)) return;
+    if (bossShield(e) === 'melee' && e.lastBy !== 'opp') unlock('shield');
     e.phaseDmg = 0;
     e.phaseI = ((e.phaseI || 0) + 1) % b.phases.length;
     const sh = bossShield(e), nm = bossName(b, e.loop);
@@ -1982,6 +2247,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (G.state !== 'playing' || p.iframe > 0 || p.dead || p.prot > 0) return;
     const taken = dmg * (ignoreArmor ? 1 : 1 - 0.08 * lvl('plates'));
     p.hp = Math.max(0, p.hp - taken);
+    G.waveHurt = true;
+    // boss hits are the only ones that ignore armour
+    if (ignoreArmor && src !== 'opp' && !quiet) G.bossHit = true;
     if (G.vs) {
       if (src === 'opp') { G.vs.oppDmg += taken; G.vs.lastHitBy = 'opp'; }
       else G.vs.lastHitBy = 'world';
@@ -1996,6 +2264,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (p.hp <= 0 && lvl('p_wind') && !G.windUsed) {
       G.windUsed = true; p.hp = lvl('p_wind') >= 2 ? 30 : 1; p.iframe = 1;
       floatText(p.x, p.y - 30, 'SECOND WIND', '#dfeef4');
+      unlock('second');
     }
     if (p.hp <= 0 && pRank() >= 9 && !G.revived) {
       G.revived = true; p.hp = p.maxHp / 2; p.iframe = 2;
@@ -2161,6 +2430,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const p = G.player;
     if (G.banner.t > 0) G.banner.t -= dt;
     p.prot = Math.max(0, (p.prot || 0) - dt);
+    G.time = (G.time || 0) + dt; STATS.time += dt;
 
     // a downed versus player sits out until the next wave
     if (!p.dead) {
@@ -2248,6 +2518,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         w.hit.push(e.id);
         if (meleeProof(e)) { immuneTip(e, 'GUNS ONLY'); continue; }
         damage(e, { vx: dx || 0.01, vy: dy, dmg: w.dmg, kb: 3, melee: true });
+        if (e.dead && ++w.kills >= 10) unlock('crowd');
       }
       if (w.r >= w.max) G.waves.splice(i, 1);
     }
@@ -2391,6 +2662,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         if (G.vs) { vsWaveCleared(); vsSend({ t: 'v.wc' }); }
         else {
           const bonus = rounds(36);
+          onWaveSurvived();
           p.res += bonus; addScore(G.wave * 25);
           G.banner = { title: `Wave ${G.wave} cleared`, sub: `+${bonus} rounds · +${G.wave * 25} points`, t: 1.6 };
           SFX.pickup();
@@ -2435,11 +2707,31 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   // what a soldier carries and how they're ranked, so the same drawing serves you and your versus opponent
-  const localLook = () => ({ gun: gunDef(), mel: meleeDef(), gr: gunRank(), mr: meleeRank(), pr: pRank(), st: swingTime(), range: meleeRange() });
+  const localLook = () => ({ gun: gunDef(), mel: meleeDef(), gr: gunRank(), mr: meleeRank(), pr: pRank(), st: swingTime(), range: meleeRange(), decal: myCos().decal });
   function oppLook(o) {
     const mel = MELEE_BY[o.m] || MELEE[0];
     return { gun: GUN[o.g] || GUNS[0], mel, gr: clamp(o.gr || 0, 0, 5), mr: clamp(o.mr || 0, 0, 5), pr: clamp(o.pr || 0, 0, PRANKS.length - 1),
-      st: Math.min(0.2, mel.rate * 0.6), range: mel.range };
+      st: Math.min(0.2, mel.rate * 0.6), range: mel.range, decal: o.dc };
+  }
+  // a small symbol painted on top of the helmet (drawn in the soldier's rotated frame)
+  function drawDecal(kind) {
+    ctx.save(); ctx.translate(0, 0);
+    if (kind === 'skull') {
+      ctx.fillStyle = '#efe9d6'; circle(0, 0, 4.2); ctx.fillRect(-2.6, 2, 5.2, 2.6);
+      ctx.fillStyle = '#1a1210'; circle(-1.5, -0.5, 1.1); circle(1.5, -0.5, 1.1);
+    } else if (kind === 'star') {
+      ctx.fillStyle = '#ffd36b'; ctx.beginPath();
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 2.2 : 5; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+      ctx.closePath(); ctx.fill();
+    } else if (kind === 'pig') {
+      ctx.fillStyle = '#f0a7b4'; ellipse(0, 0, 4.6, 3.6);
+      ctx.fillStyle = '#7a3546'; circle(-1.5, 0, 1); circle(1.5, 0, 1);
+    } else if (kind === 'crown') {
+      ctx.fillStyle = '#f2c14e'; ctx.beginPath();
+      ctx.moveTo(-5, 3); ctx.lineTo(-5, -2); ctx.lineTo(-2.5, 0.5); ctx.lineTo(0, -4); ctx.lineTo(2.5, 0.5); ctx.lineTo(5, -2); ctx.lineTo(5, 3);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
   }
   function drawPlayer(p, L) {
     L = L || localLook();
@@ -2526,6 +2818,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     ctx.fillStyle = pr >= 2 ? pc : '#3d4a29'; circle(1, 0, 9.5);
     if (pr === 1) { ctx.fillStyle = pc; ctx.fillRect(-8, -1, 16, 2); }
     ctx.fillStyle = 'rgba(255,255,255,0.12)'; circle(-1, -3, 4);
+    if (L.decal && L.decal !== 'none') drawDecal(L.decal);
     // night-vision lens
     ctx.fillStyle = pr >= 5 ? '#7fe8ff' : '#9fe39a'; ctx.fillRect(7, -3, 3, 6);
     if (p.flash > 0 && !p.melee) {
@@ -2620,6 +2913,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       ctx.globalAlpha = a; ctx.strokeStyle = q.color; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.arc(q.x, q.y, q.r * (1 - a * 0.7), 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
+    } else if (q.k === 'puff') {
+      ctx.globalAlpha = a * 0.45; ctx.fillStyle = '#9aa3a8'; circle(q.x, q.y, q.size + (1 - a) * 14); ctx.globalAlpha = 1;
+    } else if (q.k === 'conf') {
+      ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.globalAlpha = Math.min(1, a * 2);
+      ctx.fillStyle = q.color; ctx.fillRect(-3, -1.5, 6, 3);
+      ctx.restore(); ctx.globalAlpha = 1;
     } else if (q.k === 'text') {
       ctx.globalAlpha = Math.min(1, a * 1.5);
       ctx.fillStyle = q.color; ctx.font = '600 15px "Chakra Petch", sans-serif';
@@ -2785,8 +3084,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const w = 40, f = clamp(o.hp / (o.mh || 100), 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(o.x - w / 2, o.y - 34, w, 5);
     ctx.fillStyle = '#ff6b5a'; ctx.fillRect(o.x - w / 2, o.y - 34, w * f, 5);
-    ctx.font = '600 13px "Chakra Petch", sans-serif'; ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffb3a8'; ctx.fillText(G.vs.name, o.x, o.y - 40);
+    // their name in their name-tag colour, with their title above it
+    ctx.textAlign = 'center';
+    ctx.font = '600 13px "Chakra Petch", sans-serif';
+    ctx.fillStyle = o.nc === 'rainbow' ? `hsl(${(performance.now() / 11) % 360},90%,70%)` : NAME_COL[o.nc] || '#ffb3a8';
+    ctx.fillText(G.vs.name, o.x, o.y - 40);
+    if (o.ti) {
+      ctx.font = '500 11px "Share Tech Mono", monospace';
+      ctx.fillStyle = 'rgba(231,226,212,0.75)'; ctx.fillText(o.ti, o.x, o.y - 54);
+    }
   }
 
   function render(now) {
@@ -2823,21 +3129,26 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (!p.dead) drawPlayer(p);
     if (G.vs) drawOpponent();
     ctx.lineCap = 'round';
-    if (G.vs) for (const b of G.vs.oppBullets) {
-      if (b.k) { drawMeleeShot(b); continue; }
-      const tx = b.x - b.vx * 0.022, ty = b.y - b.vy * 0.022;
-      ctx.strokeStyle = 'rgba(255,90,80,0.4)'; ctx.lineWidth = (b.w || 2) * 2.5;
-      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
-      ctx.strokeStyle = '#ffb3a8'; ctx.lineWidth = b.w || 2;
-      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
+    if (G.vs) {
+      // their bullets keep a red glow so you can always tell them apart, with their own tracer colour in the core
+      const oc = (TRACER_COL[G.vs.opp.tr] || TRACER_COL.amber)[1];
+      for (const b of G.vs.oppBullets) {
+        if (b.k) { drawMeleeShot(b); continue; }
+        const tx = b.x - b.vx * 0.022, ty = b.y - b.vy * 0.022;
+        ctx.strokeStyle = 'rgba(255,70,60,0.45)'; ctx.lineWidth = (b.w || 2) * 2.5;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
+        ctx.strokeStyle = oc; ctx.lineWidth = b.w || 2;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
     }
-    const diamond = gunRank() >= 5;
+    // an equipped tracer wins; otherwise a Diamond gun keeps its cyan tracers
+    const myTr = myCos().tracer, tc = myTr === 'amber' && gunRank() >= 5 ? TRACER_COL.ice : TRACER_COL[myTr];
     for (const b of G.bullets) {
       if (b.k) { drawMeleeShot(b); continue; }
       const tx = b.x - b.vx * 0.022, ty = b.y - b.vy * 0.022;
-      ctx.strokeStyle = diamond ? 'rgba(127,232,255,0.4)' : 'rgba(242,177,52,0.35)'; ctx.lineWidth = (b.w || 2) * 2.5;
+      ctx.strokeStyle = tc[0]; ctx.lineWidth = (b.w || 2) * 2.5;
       ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
-      ctx.strokeStyle = diamond ? '#d8fbff' : '#ffe2a0'; ctx.lineWidth = b.w || 2;
+      ctx.strokeStyle = tc[1]; ctx.lineWidth = b.w || 2;
       ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
     drawShots();
@@ -2900,8 +3211,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     pause: $('pauseBtn'), mute: $('muteBtn'), reload: $('reloadBtn'), swap: $('swapBtn'), specialBtn: $('specialBtn'), sp: $('spLabel'), hud: $('hud'),
     bossBar: $('bossBar'), bossName: $('bossName'), bossTitle: $('bossTitle'), bossFill: $('bossFill'),
     mGun: $('mGun'), mGunFill: $('mGunFill'), mMel: $('mMel'), mMelFill: $('mMelFill'), mPl: $('mPl'), mPlFill: $('mPlFill'),
-    scoreLabel: $('scoreLabel'), bestLine: $('bestLine'), vsLine: $('vsLine')
+    scoreLabel: $('scoreLabel'), bestLine: $('bestLine'), vsLine: $('vsLine'), achPop: $('achPop')
   };
+  // achievement popups take turns, about 4 seconds each
+  function achPopTick() {
+    const now = performance.now();
+    if (achShownAt && now - achShownAt > 3800) { achShownAt = 0; ui.achPop.hidden = true; }
+    if (achShownAt || !achQueue.length) return;
+    const a = achQueue.shift(), t = TIERS[a.tier];
+    ui.achPop.innerHTML = `<span class="label">Achievement unlocked · <span style="color:${t.color}">${t.name}</span></span>
+      <b>${a.name}</b><span class="note">+${t.pts} pts${a.reward ? ` · Unlocks ${rewardText(a.reward)}` : ''}</span>`;
+    ui.achPop.style.borderColor = t.color;
+    ui.achPop.hidden = false;
+    achShownAt = now;
+  }
   function mastHud(id, label, fill, ranks = RANKS, name = (GUN[id] || MELEE_BY[id] || {}).name) {
     const xp = xpOf(id), r = rankIn(ranks, xp), nx = ranks[r + 1];
     setText(label, `${name} · ${ranks[r].name} · ${nx ? `${xp}/${nx.xp}` : `${xp} max`}`);
@@ -2912,6 +3235,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function setText(el, v) { v = String(v); if (el._v !== v) { el.textContent = v; el._v = v; } }
   function syncHud() {
     const p = G.player;
+    achPopTick();
     ui.hpFill.style.width = (p.hp / p.maxHp) * 100 + '%';
     ui.hpFill.classList.toggle('low', p.hp <= p.maxHp * 0.3);
     setText(ui.hpNum, Math.ceil(p.hp));
@@ -3056,6 +3380,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         : '<p class="note">No friends yet. Add some from the Friends screen on the main menu.</p>';
       return;
     }
+    if (boardTab === 'ach') {
+      const c = myCos();
+      const mine = [{ name: me.name || 'You', pts: achPoints(), n: achCount(), ti: c.title, nc: c.name, me: true }]
+        .concat(Object.values(friends).map(f => { const p = cleanProf(f.prof) || cleanProf({});
+          return { name: f.name || 'Player', pts: p.pts, n: p.ach.length, ti: p.ti, nc: p.nc }; }))
+        .sort((a, b) => b.pts - a.pts);
+      el.innerHTML = `<span class="label">You and your friends</span>${achBoardHtml(mine)}<div id="achGlobal"></div>`;
+      const g = await globalAchRows();
+      const box = $('achGlobal');
+      if (box && g) box.innerHTML = `<span class="label">Global</span>${achBoardHtml(g)}`;
+      return;
+    }
     const rows = await globalRows();
     if (!$('boardBody')) return;
     el.innerHTML = rows ? boardHtml(rows, false)
@@ -3072,11 +3408,13 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       <span class="row2"><button type="button" class="buy" data-fr="accept" data-code="${c}">Accept</button>
       <button type="button" class="ghost" data-fr="decline" data-code="${c}">Decline</button></span></li>`).join('');
     const list = Object.keys(friends).sort((a, b) => (friends[b].best || 0) - (friends[a].best || 0)).map(c => {
-      const f = friends[c], on = isOnline(c), pr = f.prank > 0 && PRANKS[f.prank];
+      const f = friends[c], on = isOnline(c), pr = f.prank > 0 && PRANKS[f.prank], pf = f.prof && cleanProf(f.prof);
       const seen = on ? 'online now' : f.seen ? `last seen ${new Date(f.seen).toLocaleDateString()}` : 'not seen yet';
       return `<li><span class="dot${on ? ' on' : ''}" title="${on ? 'Online' : 'Offline'}"></span>
-        <div class="info"><b>${esc(f.name || 'Player')}${pr ? ` <span class="rk" style="color:${pr.color}">${pr.name}</span>` : ''}</b>
-        <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0} · ${seen}</span></div>
+        <div class="info"><b>${nameHtml(f.name || 'Player', pf ? pf.nc : 'default')}${pr ? ` <span class="rk" style="color:${pr.color}">${pr.name}</span>` : ''}</b>
+        ${pf && pf.ti ? `<span class="ttl">${esc(pf.ti)}</span>` : ''}
+        <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0} · ${pf ? `${pf.pts} pts · ` : ''}${seen}</span></div>
+        <button type="button" class="ghost" data-fr="profile" data-code="${c}">Profile</button>
         ${on ? `<button type="button" class="buy" data-fr="challenge" data-code="${c}">Challenge</button>` : ''}
         <button type="button" class="ghost" data-fr="remove" data-code="${c}">Remove</button></li>`;
     }).join('');
@@ -3111,6 +3449,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (a === 'accept') frAccept(code);
     else if (a === 'decline') frDecline(code);
     else if (a === 'challenge') frChallenge(code);
+    else if (a === 'profile') { if (!friends[code]) return; FR.viewing = code; profTab = 'overview'; showOverlay('fprofile'); }
     else if (a === 'vsyes') vsAcceptInvite();
     else if (a === 'vsno') vsDeclineInvite();
     else if (a === 'remove') frRemove(code);
@@ -3127,9 +3466,126 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     else if (a === 'restore') { const i = $('frRestore'); frRestore(i ? i.value : ''); }
   });
 
+  // ---------- profile & achievements ----------
+  let profTab = 'overview';
+  const nameHtml = (name, nc) => nc === 'rainbow' ? `<span class="nc-rainbow">${esc(name)}</span>`
+    : `<span style="color:${NAME_COL[nc] || 'inherit'}">${esc(name)}</span>`;
+  function rewardText(r) {
+    if (!r) return '';
+    const parts = [];
+    if (r.title) parts.push(`title “${r.title}”`);
+    if (r.name) parts.push(`${COS.name[r.name]} name colour`);
+    if (r.tracer) parts.push(`${COS.tracer[r.tracer]} tracers`);
+    if (r.decal) parts.push(`${COS.decal[r.decal]} helmet decal`);
+    if (r.kill) parts.push(`${COS.kill[r.kill]} kill effect`);
+    return parts.join(', ');
+  }
+  const fmtTime = s => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m` : `${Math.floor(s / 60)}m`;
+  // one renderer for your own profile and a friend's; d.mine adds progress bars and the Customise tab
+  function profileHtml(d) {
+    const tabs = [['overview', 'Overview'], ['ach', 'Achievements']].concat(d.mine ? [['custom', 'Customise']] : []);
+    const tab = tabs.some(t => t[0] === profTab) ? profTab : 'overview';
+    const s = d.st, got = id => d.ach.includes(id);
+    const fav = Object.keys(d.mx).filter(id => id !== PLAYER_KEY).sort((a, b) => d.mx[b] - d.mx[a])[0];
+    let body = '';
+    if (tab === 'overview') {
+      const show = ACHS.filter(a => got(a.id)).sort((a, b) => TIERS[b.tier].pts - TIERS[a.tier].pts).slice(0, 3);
+      const stat = (label, v) => `<div><span class="label">${label}</span><b>${v}</b></div>`;
+      const mrow = id => { const xp = d.mx[id] || 0, r = rankIn(RANKS, xp), w = GUN[id] || MELEE_BY[id];
+        return `<div><span>${w.name}</span>${r ? `<span class="rk" style="color:${RANKS[r].color}">${RANKS[r].name}</span>` : `<span class="rk">${xp} XP</span>`}</div>`; };
+      body = `
+        <div class="pstats">
+          ${stat('Hostiles killed', s.kills.toLocaleString())}${stat('Melee kills', s.meleeKills.toLocaleString())}${stat('Crits', s.crits.toLocaleString())}
+          ${stat('Bosses beaten', `${s.bosses} · ${s.distinct}/10 kinds`)}${stat('Best score', s.best.toLocaleString())}${stat('Best wave', s.bestWave)}
+          ${stat('Runs', s.runs)}${stat('Waves cleared', s.waves)}${stat('Times down', s.deaths)}
+          ${stat('Versus', `${s.vsWins}W · ${s.vsLosses}L`)}${stat('Takedowns', s.pvp)}${stat('Time played', fmtTime(s.time))}
+        </div>
+        ${fav && d.mx[fav] ? `<p class="note">Favourite weapon: <b>${(GUN[fav] || MELEE_BY[fav]).name}</b></p>` : ''}
+        <span class="label">Showcase</span>
+        ${show.length ? `<div class="cards">${show.map(a => achCard(a, true, d.mine)).join('')}</div>` : '<p class="note">No achievements yet.</p>'}
+        <span class="label">Weapon mastery</span>
+        <div class="mrows">${GUNS.map(g => mrow(g.id)).concat(MELEE.map(m => mrow(m.id))).join('')}</div>`;
+    } else if (tab === 'ach') {
+      const cats = [...new Set(ACHS.map(a => a.cat))];
+      body = cats.map(c => `<span class="label">${c}</span><div class="cards">${ACHS.filter(a => a.cat === c).map(a => achCard(a, got(a.id), d.mine)).join('')}</div>`).join('');
+    } else {
+      const c = myCos(), row = k => {
+        const opts = k === 'title' ? [''].concat(TITLES) : Object.keys(COS[k]);
+        return `<div class="frrow"><span class="label">${COS_LABEL[k]}</span><div class="chiprow">${opts.map(v => {
+          const own = cosOwned(k, v), src = cosSource(k, v), label = k === 'title' ? (v || 'None') : COS[k][v];
+          return `<button type="button" class="chip-b" data-act="cos" data-k="${k}" data-v="${esc(v)}" aria-pressed="${c[k] === v}" ${own ? '' : 'disabled'}
+            title="${own ? '' : `Unlock: ${esc(src ? src.name : '')}`}">${esc(label)}${own ? '' : ' · locked'}</button>`;
+        }).join('')}</div></div>`;
+      };
+      body = `<p class="note">Hard achievements unlock cosmetics, and Extreme and Legendary ones unlock titles. Your friends and versus opponents see what you wear.</p>
+        ${['title', 'name', 'tracer', 'decal', 'kill'].map(row).join('')}`;
+    }
+    return `<div class="brief wide">
+      <p class="eyebrow">${d.mine ? 'Your profile' : 'Friend profile'}${d.ti ? ` · ${esc(d.ti)}` : ''}</p>
+      <h1>${nameHtml(d.name, d.nc)}</h1>
+      <div class="wallet"><span class="label">${PRANKS[d.prank].name} rank · ${d.ach.length} / ${ACHS.length} achievements</span><b>${d.pts.toLocaleString()} pts</b></div>
+      <div class="tabs" role="tablist">${tabs.map(t => `<button type="button" class="tab" role="tab" data-act="ptab" data-tab="${t[0]}" aria-selected="${t[0] === tab}">${t[1]}</button>`).join('')}</div>
+      ${body}
+      <div class="actions"><button type="button" class="cta" data-act="${d.mine ? 'back' : 'frback'}">Back</button></div>
+    </div>`;
+  }
+  function achCard(a, done, mine) {
+    const t = TIERS[a.tier], pr = a.prog && mine && !done ? a.prog() : null;
+    return `<div class="card${done ? '' : ' locked'}">
+      <div class="info">
+        <div class="card-top"><b>${a.name}</b><span class="tier" style="color:${t.color}">${t.name}</span></div>
+        <span class="note">${a.desc}</span>
+        ${a.reward ? `<span class="note">Unlocks ${rewardText(a.reward)}</span>` : ''}
+      </div>
+      ${pr ? `<div class="rbar"><i style="width:${Math.min(100, 100 * pr[0] / pr[1])}%"></i></div><span class="label">${Math.min(pr[0], pr[1]).toLocaleString()} / ${pr[1].toLocaleString()}</span>` : ''}
+      <span class="label" style="color:${done ? t.color : 'var(--muted)'}">${t.pts} pts${done && mine && ACH[a.id] ? ` · ${new Date(ACH[a.id]).toLocaleDateString()}` : done ? ' · unlocked' : ''}</span>
+    </div>`;
+  }
+  function myProfileData() {
+    const p = myProf();
+    return { mine: true, name: me.name || 'Player', ti: p.ti, nc: p.nc, pts: p.pts, prank: pRank(), ach: p.ach, st: p.st, mx: p.mx };
+  }
+  function friendProfileData(code) {
+    const f = friends[code];
+    if (!f) return null;
+    const p = cleanProf(f.prof) || cleanProf({});
+    return { mine: false, name: f.name || 'Player', ti: p.ti, nc: p.nc, pts: p.pts, prank: clamp(f.prank || 0, 0, PRANKS.length - 1), ach: p.ach, st: p.st, mx: p.mx };
+  }
+  function achBoardHtml(rows) {
+    if (!rows.length) return '<p class="note">No achievement points yet.</p>';
+    return `<div class="boardwrap"><table class="board"><thead><tr><th class="n">#</th><th>Player</th><th class="n">Achievements</th><th class="n">Points</th></tr></thead><tbody>
+      ${rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="n">${i + 1}</td>
+        <td class="who">${nameHtml(r.name, r.nc)}${r.ti ? ` <span class="ttl">${esc(r.ti)}</span>` : ''}</td>
+        <td class="n">${r.n}</td><td class="n">${r.pts.toLocaleString()}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  }
+  // global achievement points live in the page's database on claude.ai
+  async function postPoints() {
+    if (!lbDb || !lbMe) return;
+    try { await lbDb.doc('apoints/' + lbMe).set({ pts: achPoints(), n: achCount(), title: myCos().title, nc: myCos().name, prank: pRank(), at: Date.now() }); } catch (e) {}
+  }
+  async function globalAchRows() {
+    if (!lbDb) return null;
+    try {
+      const s = await lbDb.collection('apoints').orderBy('pts', 'desc').limit(20).get();
+      const rows = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      const ps = lbUser ? await lbUser.profiles(rows.map(r => r.id)) : {};
+      return rows.map(r => ({ name: (ps[r.id] && ps[r.id].name) || 'Player', pts: num(r.pts, 1e6), n: num(r.n, ACHS.length),
+        ti: TITLES.includes(r.title) ? r.title : '', nc: COS.name[r.nc] ? r.nc : 'default', me: r.id === lbMe }));
+    } catch (e) { return null; }
+  }
+
   function showOverlay(kind) {
     const o = ui.overlay;
     FR.view = kind === 'friends';
+    if (kind === 'profile' || kind === 'fprofile') {
+      const d = kind === 'profile' ? myProfileData() : friendProfileData(FR.viewing);
+      if (!d) { showOverlay('friends'); return; }
+      o.innerHTML = profileHtml(d);
+      o.hidden = false;
+      frToast();
+      return;
+    }
     frToast();
     if (kind === 'friends') {
       o.innerHTML = `<div class="brief wide">
@@ -3261,6 +3717,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <button type="button" class="tab" role="tab" data-act="btab" data-tab="global" aria-selected="${boardTab === 'global'}">Global</button>
           <button type="button" class="tab" role="tab" data-act="btab" data-tab="friends" aria-selected="${boardTab === 'friends'}">Friends</button>
           <button type="button" class="tab" role="tab" data-act="btab" data-tab="local" aria-selected="${boardTab === 'local'}">This device</button>
+          <button type="button" class="tab" role="tab" data-act="btab" data-tab="ach" aria-selected="${boardTab === 'ach'}">Achievement points</button>
         </div>
         <div id="boardBody"><p class="note">Loading…</p></div>
         <p class="note">Global shows each player’s best run. Scores post when a run ends.</p>
@@ -3289,6 +3746,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <button type="button" class="${saved ? 'ghost' : 'cta'}" data-act="start">${saved ? 'New run' : 'Deploy'}</button>
           <button type="button" class="ghost" data-act="endless">Endless</button>
           <button type="button" class="ghost" data-act="board">Leaderboard</button>
+          <button type="button" class="ghost" data-act="profile">Profile · ${achPoints().toLocaleString()} pts</button>
           <button type="button" class="ghost" data-act="friends">Friends${Object.keys(FR.pending).length ? ` (${Object.keys(FR.pending).length})` : ''}</button>
           <button type="button" class="ghost" data-act="transfer">Transfer progress</button>
         </div>
@@ -3407,6 +3865,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     else if (act === 'vsff') { if (G.vs && !G.vs.over) vsEnd('ff-me', true); }
     else if (act === 'vsrematch') { if (G.vs) { const code = G.vs.code; G = freshState(chosenGun); paintFloor(); frChallenge(code); } }
     else if (act === 'transfer') { if (G.state !== 'title') return; boardFrom = 'title'; showOverlay('transfer'); }
+    else if (act === 'profile') { if (G.state !== 'title') return; boardFrom = 'title'; profTab = 'overview'; FR.viewing = null; showOverlay('profile'); }
+    else if (act === 'ptab') { profTab = b.dataset.tab; showOverlay(FR.viewing ? 'fprofile' : 'profile'); }
+    else if (act === 'frback') { FR.viewing = null; showOverlay('friends'); }
+    else if (act === 'cos') {
+      const k = b.dataset.k, val = b.dataset.v;
+      if (!COS_LABEL[k] || !cosOwned(k, val)) return;
+      MYCOS[k] = val; saveCos(); frHelloAll(); postPoints();
+      showOverlay('profile');
+    }
     else if (act === 'mkcode') {
       const out = $('tfOut'), note = $('tfNote');
       out.value = progressCode(); out.hidden = false; out.focus(); out.select();
@@ -3442,6 +3909,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     G = freshState(chosenGun);
     G.endless = !!endless;
     G.state = 'playing';
+    STATS.runs++;
     paintFloor();
     ui.overlay.hidden = true;
     mouse.down = false;
@@ -3503,7 +3971,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     } else {
       const s = SUPPLIES.find(x => x.id === id);
       if (!s || pts < s.cost) return false;
-      if (id === 'heal') { if (p.hp >= p.maxHp) return false; p.hp = p.maxHp; }
+      if (id === 'heal') { if (p.hp >= p.maxHp) return false; p.hp = p.maxHp; G.boughtMed = true; }
       else p.res += rounds(48);
       G.spent += s.cost;
     }
@@ -3527,6 +3995,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function win() {
     G.state = 'won';
     mouse.down = false;
+    unlock('w30');
+    if (!G.boughtMed) unlock('ironwill');
     saveMastery(); clearRun(); submitRun();
     if (G.score > best) { best = G.score; saveBest(); }
     showOverlay('won');
@@ -3534,6 +4004,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function gameOver() {
     G.state = 'over';
     mouse.down = false;
+    STATS.deaths++;
     saveMastery(); clearRun(); submitRun();
     if (G.score > best) { best = G.score; saveBest(); }
     showOverlay('over');
@@ -3578,6 +4049,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   function start(data) {
     if (data && data.player && Array.isArray(data.enemies)) G = normalize(data);
+    // catch up on achievements already earned before they existed (mastery, ranks, friends)
+    checkRanks(); checkStats();
+    if (Object.keys(friends).length) unlock('squad');
     if (G.state === 'title') showOverlay('title');
     else if (G.state === 'paused') showOverlay('paused');
     else if (G.state === 'over') showOverlay('over');
