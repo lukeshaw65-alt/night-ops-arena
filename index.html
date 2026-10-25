@@ -252,9 +252,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     </div>
     <div class="right">
       <div class="chip score">
-        <span class="label">Score</span>
+        <span class="label" id="scoreLabel">Score</span>
         <b id="score">0</b>
-        <span class="label">Best <span id="best">0</span></span>
+        <span class="label" id="bestLine">Best <span id="best">0</span></span>
+        <span class="label" id="vsLine" hidden></span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <button type="button" class="btn-s" id="pauseBtn">Pause</button>
@@ -624,6 +625,23 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const rand = (a, b) => a + Math.random() * (b - a);
 
+  // versus: hostile damage numbers are tuned for hostiles, so hits on the other player are scaled up
+  const PVP = 6;
+  const TYPE_KEYS = ['grunt', 'runner', 'tank', 'gunner', 'plated', 'spiker', 'boss'];
+  const MODE_KEYS = ['windup', 'charge', 'spiral', 'stream', 'fade', 'appear'];
+  const isHost = () => !!(G.vs && G.vs.role === 'host');
+  const isGuest = () => !!(G.vs && G.vs.role === 'guest');
+  // in versus, what you earn this wave stays at risk until you survive it
+  function addScore(n) { G.score += n; if (G.vs) G.vs.risk += n; }
+  // hostiles go for whichever living player is closer
+  function vsTarget(e, p) {
+    if (!G.vs) return p;
+    const o = G.vs.opp;
+    const pd = p.dead ? Infinity : (p.x - e.x) ** 2 + (p.y - e.y) ** 2;
+    const od = o.dead || !o.seen0 ? Infinity : (o.x - e.x) ** 2 + (o.y - e.y) ** 2;
+    return od < pd ? o : p;
+  }
+
   function freshState(gun) {
     const g = GUN[gun] || GUNS[0], hp0 = 100 + (pRank() >= 1 ? 10 : 0);
     return {
@@ -646,7 +664,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // a run in progress is kept on this device so you can leave and pick it up later
   const RUN_KEY = 'nightops-run';
   function saveRun() {
-    if (!['playing', 'paused', 'shop'].includes(G.state)) return;
+    if (G.vs || !['playing', 'paused', 'shop'].includes(G.state)) return;
     try { localStorage.setItem(RUN_KEY, JSON.stringify(G)); } catch (e) {}
   }
   function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch (e) {} }
@@ -668,20 +686,17 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   async function submitRun() {
     if (G.wave > bestWave) { bestWave = G.wave; jset('nightops-bestwave', bestWave); }
     frHelloAll();
-    if (G.score <= (G.submitted || 0)) return;
-    G.submitted = G.score;
-    const run = { score: G.score, wave: G.wave, gun: G.gun, melee: G.melee, endless: !!G.endless, prank: pRank(), at: Date.now() };
+    // a versus match counts its banked + at-risk match score, not the shop points
+    const score = G.vs ? G.vs.banked + G.vs.risk : G.score;
+    if (score <= (G.submitted || 0)) return;
+    G.submitted = score;
+    const run = { score, wave: G.wave, gun: G.gun, melee: G.melee, endless: !!G.endless, vs: !!G.vs, prank: pRank(), at: Date.now() };
     try {
       const b = localBoard().concat([run]).sort((a, c) => c.score - a.score).slice(0, 10);
       localStorage.setItem('nightops-board', JSON.stringify(b));
     } catch (e) {}
-    if (!lbDb || !lbMe) return;
-    try {
-      // one row per player: only overwrite it with a better score
-      const ref = lbDb.doc('scores/' + lbMe), cur = await ref.get();
-      if (cur.exists && (cur.data().score || 0) >= run.score) return;
-      await ref.set(run);
-    } catch (e) {}
+    // one row per player: only overwritten with a better score
+    postToBoard(run);
   }
   // ---------- friends: browsers link up directly through PeerJS; no accounts, nothing kept on a server ----------
   const FR_PREFIX = 'nightops-', CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -717,7 +732,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       frRefresh();
     });
     c.on('data', d => frMsg(code, d));
-    c.on('close', () => { if (FR.conns[code] === c) { delete FR.conns[code]; frRefresh(); } });
+    c.on('close', () => { if (FR.conns[code] === c) { delete FR.conns[code]; vsLost(code); frRefresh(); } });
     c.on('error', () => {});
   }
   function frConnect(code) {
@@ -736,6 +751,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   function frMsg(code, d) {
     if (!d || typeof d !== 'object' || typeof d.t !== 'string') return;
+    if (d.t.startsWith('v.')) { if (friends[code]) vsMsg(code, d); return; }
     if (d.t === 'hello') frStats(code, d);
     else if (d.t === 'req') {
       if (friends[code]) { frStats(code, d); frSend(code, Object.assign({ t: 'acc' }, myStats())); }
@@ -868,9 +884,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const mine = localBoard(), seen = new Set(mine.map(r => `${r.at}:${r.score}`));
       const rows = d.board.filter(r => r && typeof r === 'object').map(r => ({
         score: num(r.score, 1e9), wave: num(r.wave, 9999), gun: GUN[r.gun] ? r.gun : 'carbine', melee: MELEE_BY[r.melee] ? r.melee : 'machete',
-        endless: !!r.endless, prank: num(r.prank, PRANKS.length - 1), at: num(r.at, 1e14) }));
+        endless: !!r.endless, vs: !!r.vs, prank: num(r.prank, PRANKS.length - 1), at: num(r.at, 1e14) }));
       jset('nightops-board', mine.concat(rows.filter(r => !seen.has(`${r.at}:${r.score}`))).sort((a, c) => c.score - a.score).slice(0, 10));
     }
+    // carry the best run onto the global leaderboard too (only does anything on claude.ai)
+    const top = localBoard()[0];
+    if (top) postToBoard(Object.assign({}, top, { prank: pRank(), at: top.at || Date.now() }));
     // a saved run only comes across if this copy doesn't already have one
     if (d.run && d.run.player && Array.isArray(d.run.enemies) && !loadRun()) jset(RUN_KEY, d.run);
     if (d.friends && typeof d.friends === 'object') {
@@ -891,6 +910,479 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const done = m => { FR.note = m; frRefresh(); };
     try { navigator.clipboard.writeText(text).then(() => done(ok), () => done('Copy this: ' + text)); }
     catch (e) { done('Copy this: ' + text); }
+  }
+
+  // ---------- versus survival: two friends, one arena, waves as usual, and you can take each other down ----------
+  // The challenger hosts: their game runs hostiles, bosses and waves and streams them to the guest.
+  // Each game moves its own soldier, and the player who gets hit decides the damage, so lag stays fair.
+  const vsSend = msg => { const code = G.vs ? G.vs.code : FR.lobby && FR.lobby.code; if (code) frSend(code, msg); };
+  const vsBusy = () => !!(FR.lobby || (G.vs && !G.vs.over) || !['title', 'over', 'won', 'vsover'].includes(G.state));
+  const killBonus = () => 100 + 20 * G.wave;
+
+  function frChallenge(code) {
+    if (!isOnline(code)) { FR.note = 'They need to be online to challenge.'; frRefresh(); return; }
+    if (FR.lobby || (G.vs && !G.vs.over)) return;
+    if (G.state !== 'title') { G = freshState(chosenGun); paintFloor(); }
+    FR.lobby = { code, name: (friends[code] && friends[code].name) || 'Player', role: 'host', status: 'waiting', ready: false, oppReady: false };
+    frSend(code, { t: 'v.ch', name: me.name || 'Player' });
+    showOverlay('lobby');
+  }
+  function vsAcceptInvite() {
+    const inv = FR.invite;
+    FR.invite = null; frToast();
+    if (!inv || !isOnline(inv.code) || vsBusy()) return;
+    if (G.state !== 'title') { G = freshState(chosenGun); paintFloor(); }
+    FR.lobby = { code: inv.code, name: inv.name, role: 'guest', status: 'lobby', ready: false, oppReady: false };
+    frSend(inv.code, { t: 'v.acc' });
+    boardFrom = 'title';
+    showOverlay('lobby');
+  }
+  function vsDeclineInvite() {
+    const inv = FR.invite;
+    FR.invite = null; frToast();
+    if (inv) frSend(inv.code, { t: 'v.dec' });
+  }
+  function vsLeaveLobby(note) {
+    if (FR.lobby) frSend(FR.lobby.code, { t: 'v.leave' });
+    FR.lobby = null;
+    FR.note = note || '';
+    boardFrom = 'title';
+    showOverlay('friends');
+  }
+  function vsToggleReady() {
+    const L = FR.lobby;
+    if (!L || L.status !== 'lobby') return;
+    L.ready = !L.ready;
+    frSend(L.code, { t: 'v.rdy', r: L.ready ? 1 : 0 });
+    showOverlay('lobby');
+    vsMaybeGo();
+  }
+  function vsMaybeGo() {
+    const L = FR.lobby;
+    if (L && L.role === 'host' && L.ready && L.oppReady) { frSend(L.code, { t: 'v.go' }); startVersus('host', L.code); }
+  }
+
+  const spawnSpot = role => ({ x: W / 2 + (role === 'host' ? -150 : 150), y: H / 2 });
+  function startVersus(role, code) {
+    initAudio();
+    const name = (FR.lobby && FR.lobby.name) || (friends[code] && friends[code].name) || 'Opponent';
+    FR.lobby = null;
+    G = freshState(chosenGun);
+    const s = spawnSpot(role), o = spawnSpot(role === 'host' ? 'guest' : 'host');
+    G.vs = { role, code, name, banked: 0, risk: 0, oppDmg: 0, lastHitBy: 'world', ready: false, oppReady: false, readyT: 30,
+      keep: null, oppKeep: null, sendT: 0, snapT: 0, eshots: [], clr: false, hitsOut: [], hostiles: 0, oppBullets: [], oppWaves: [],
+      pvpKills: 0, deaths: 0, over: false, heard: performance.now(),
+      opp: { x: o.x, y: o.y, tx: o.x, ty: o.y, vx: 0, vy: 0, a: 0, hp: 100, mh: 100, dead: false, prot: 1, seen0: false, banked: 0, risk: 0 } };
+    Object.assign(G.player, s);
+    G.state = 'playing';
+    G.bonus = pRank() >= 2 ? 50 : 0;
+    paintFloor();
+    ui.overlay.hidden = true;
+    mouse.down = false;
+    G.banner = { title: 'Versus', sub: `You vs ${name} · most score wins`, t: 2.5 };
+    if (role === 'host') startWave(1);
+  }
+
+  // start of a wave (and respawn): back at your spot with 3 seconds of protection
+  function vsRespawn() {
+    const p = G.player, v = G.vs;
+    if (p.dead) {
+      Object.assign(p, spawnSpot(v.role), { dead: false, hp: p.maxHp, vx: 0, vy: 0, dot: 0 });
+      if (p.mag + p.res === 0) p.res = rounds(24);
+    }
+    p.prot = 3;
+    v.oppDmg = 0; v.lastHitBy = 'world';
+    G.windUsed = false;
+  }
+
+  function vsDie() {
+    const p = G.player, v = G.vs;
+    // the other player gets the kill with the last hit, or with more than 40% of your health taken this life
+    const credit = v.lastHitBy === 'opp' || v.oppDmg > 0.4 * p.maxHp;
+    const how = v.lastHitBy === 'opp' ? 'last hit' : `${Math.round(100 * v.oppDmg / p.maxHp)}% damage`;
+    const stolen = credit ? v.risk : 0, lost = v.risk;
+    v.risk = 0; v.deaths++;
+    p.dead = true; p.hp = 0; p.dot = 0; mouse.down = false;
+    blood(p.x, p.y, 0, 0, 24); stain(p.x, p.y, 18); boom(p.x, p.y, 60, '#d8453a');
+    G.banner = credit
+      ? { title: 'You’re down', sub: `${v.name} stole ${stolen.toLocaleString()} · ${how}`, t: 4 }
+      : { title: 'You’re down', sub: `${lost ? `${lost.toLocaleString()} at-risk score lost` : 'Nothing at risk'} · back next wave`, t: 4 };
+    vsSend({ t: 'v.die', credit: credit ? 1 : 0, stolen, how });
+  }
+
+  // a cleared wave banks whatever you earned in it
+  function vsWaveCleared() {
+    const p = G.player, v = G.vs;
+    let sub = 'You were down, so nothing to bank';
+    if (!p.dead) {
+      const bonus = rounds(36);
+      p.res += bonus; addScore(G.wave * 25);
+      sub = `Banked ${v.risk.toLocaleString()} · +${bonus} rounds`;
+    }
+    v.banked += v.risk; v.risk = 0;
+    G.banner = { title: `Wave ${G.wave} cleared`, sub, t: 1.6 };
+    G.clearing = true; G.inter = 1.6;
+    SFX.pickup();
+  }
+  function vsAfterClear() {
+    mouse.down = false;
+    if (G.wave >= 30 && !G.endless) { G.state = 'vsdecide'; G.vs.keep = null; showOverlay('vsdecide'); }
+    else vsOpenShop();
+  }
+  function vsOpenShop() {
+    const v = G.vs;
+    saveMastery();
+    G.state = 'shop'; G.shots = []; G.vs.oppBullets = []; mouse.down = false;
+    v.ready = false; v.oppReady = false; v.readyT = 30;
+    showOverlay('shop');
+  }
+  function vsNextWave() {
+    G.state = 'playing'; G.prep = false; ui.overlay.hidden = true;
+    startWave(G.wave + 1);
+  }
+  function vsSetReady() {
+    const v = G.vs;
+    v.ready = !v.ready;
+    vsSend({ t: 'v.rd', r: v.ready ? 1 : 0 });
+    showOverlay('shop');
+  }
+  function vsDecide(keep) {
+    const v = G.vs;
+    if (!keep) { vsEnd('done', true); return; }
+    v.keep = true;
+    vsSend({ t: 'v.kp', k: 1 });
+    if (v.oppKeep) { G.endless = true; vsOpenShop(); } else showOverlay('vsdecide');
+  }
+
+  // reason: done | both | ff-me | ff-opp | disconnect
+  function vsEnd(reason, notify, mine, theirs) {
+    const v = G.vs;
+    if (!v || v.over) return;
+    const my = mine != null ? num(mine, 1e9) : v.banked + v.risk;
+    const op = theirs != null ? num(theirs, 1e9) : (v.opp.banked || 0) + (v.opp.risk || 0);
+    if (notify) vsSend({ t: 'v.end', reason: reason === 'ff-me' ? 'ff' : reason, a: my, b: op });
+    v.over = true;
+    v.result = { reason, my, op, win: reason === 'ff-opp' || reason === 'disconnect' ? 1 : reason === 'ff-me' ? -1 : Math.sign(my - op) };
+    G.state = 'vsover'; mouse.down = false;
+    saveMastery();
+    if (my > best) { best = my; saveBest(); }
+    submitRun();
+    showOverlay('vsover');
+  }
+  function vsLost(code) {
+    if (FR.lobby && FR.lobby.code === code) vsLeaveLobby(`Lost the connection to ${FR.lobby.name}.`);
+    if (FR.invite && FR.invite.code === code) { FR.invite = null; frToast(); }
+    if (G.vs && G.vs.code === code && !G.vs.over) vsEnd('disconnect');
+  }
+
+  // per frame, in any state: send your soldier, new bullets, hits and (as host) the world
+  function vsTick(dt) {
+    const v = G.vs;
+    if (!v || v.over) return;
+    // a closed browser doesn't always close the connection, so silence for 10s counts as leaving
+    if (performance.now() - v.heard > 10000) { vsEnd('disconnect'); return; }
+    const p = G.player;
+    v.sendT -= dt;
+    if (v.sendT <= 0) {
+      v.sendT = 0.05;
+      vsSend({ t: 'v.p', x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), a: +p.a.toFixed(2),
+        hp: Math.ceil(p.hp), mh: p.maxHp, dd: p.dead ? 1 : 0, pt: p.prot > 0 ? 1 : 0, ml: p.melee ? 1 : 0, g: G.gun, m: G.melee,
+        gr: gunRank(), mr: meleeRank(), pk: pRank(), sw: +(p.swing || 0).toFixed(2), sd: p.swingDir || 1, sp: +(p.spinFx || 0).toFixed(2),
+        fl: p.flash > 0 ? 1 : 0, hu: p.hurt > 0 ? 1 : 0, bk: v.banked, rk: v.risk, k: G.kills });
+    }
+    const fresh = [];
+    for (const b of G.bullets) if (!b.sent) {
+      b.sent = true;
+      fresh.push({ x: Math.round(b.x), y: Math.round(b.y), vx: Math.round(b.vx), vy: Math.round(b.vy), l: +b.life.toFixed(2), d: +b.dmg.toFixed(2),
+        w: b.w || 2, k: b.k || '', bo: b.bounce || 0, bu: b.burn || 0, ex: b.exec || 0 });
+    }
+    if (fresh.length) vsSend({ t: 'v.b', b: fresh });
+    if (v.hitsOut.length) { vsSend({ t: 'v.hits', h: v.hitsOut }); v.hitsOut = []; }
+    if (v.role === 'host') {
+      v.snapT -= dt;
+      if (G.state === 'playing' && v.snapT <= 0) { v.snapT = 1 / 15; vsSnapshot(); }
+      if (G.state === 'shop') {
+        v.readyT -= dt;
+        if ((v.ready && v.oppReady) || v.readyT <= 0) vsNextWave();
+      }
+    } else if (G.state === 'shop') v.readyT = Math.max(0, v.readyT - dt);
+    const w = $('vsWait');
+    if (w) setText(w, `${v.oppReady ? `${v.name} is ready` : `Waiting for ${v.name}`} · next wave in ${Math.ceil(Math.max(0, v.readyT))}s`);
+  }
+
+  function vsSnapshot() {
+    const v = G.vs;
+    const e = G.enemies.filter(x => !x.dead).map(x => {
+      const m = x.mode;
+      return [x.id, TYPE_KEYS.indexOf(x.type), Math.round(x.x), Math.round(x.y), Math.round(x.a * 100), Math.round(x.hp * 10), Math.round(x.max * 10),
+        x.flash > 0 ? 1 : 0, x.type === 'boss' ? x.boss : -1, x.loop || 0, m ? MODE_KEYS.indexOf(m.k) : -1, m ? Math.round(m.t * 100) : 0,
+        m && m.a != null ? Math.round(m.a * 100) : 0, x.phaseI || 0, Math.round((x.phaseDmg || 0) * 10)];
+    });
+    const pk = G.pickups.map(it => [it.id, it.type === 'hp' ? 1 : 0, Math.round(it.x), Math.round(it.y), Math.round(it.t * 10)]);
+    const msg = { t: 'v.s', w: G.wave, en: G.endless ? 1 : 0, q: G.queue.length, e, pk };
+    if (v.eshots.length) {
+      const now = performance.now();
+      msg.sh = v.eshots.map(s => Object.assign({}, s, { ag: Math.round(now - s.ag) }));
+      v.eshots = [];
+    }
+    if (v.clr) { msg.clr = 1; v.clr = false; }
+    vsSend(msg);
+  }
+
+  // the guest's copy of the world, rebuilt from each snapshot and eased between them
+  function vsApplySnap(d) {
+    const v = G.vs;
+    G.endless = !!d.en;
+    if (num(d.w, 9999)) G.wave = num(d.w, 9999);
+    const list = Array.isArray(d.e) ? d.e : [];
+    v.hostiles = list.length + num(d.q, 999);
+    if (d.clr) G.shots = [];
+    const old = new Map(G.enemies.map(e => [e.id, e])), next = [];
+    for (const a of list) {
+      const type = TYPE_KEYS[a[1]];
+      if (!type || !Array.isArray(a)) continue;
+      let e = old.get(a[0]);
+      if (e) old.delete(a[0]);
+      else e = { id: a[0], type, x: +a[2], y: +a[3], r: 10, hp: 1, max: 1, a: 0, flash: 0, step: rand(0, 6), tip: 0, gcool: 0.5, fireT: 1 };
+      e.tx = +a[2]; e.ty = +a[3]; e.a = a[4] / 100; e.hp = a[5] / 10; e.max = Math.max(0.1, a[6] / 10);
+      if (a[7]) e.flash = 0.08;
+      if (type === 'boss') {
+        e.boss = clamp(num(a[8], 99), 0, BOSSES.length - 1); e.loop = num(a[9], 99); e.r = BOSSES[e.boss].r;
+        e.mode = a[10] >= 0 && MODE_KEYS[a[10]] ? { k: MODE_KEYS[a[10]], t: a[11] / 100, a: a[12] / 100 } : null;
+        e.phaseI = num(a[13], 9); e.phaseDmg = a[14] / 10;
+      } else e.r = TYPES[type].r;
+      // a teleport or a long lag spike snaps rather than sliding across the yard
+      if (Math.hypot(e.tx - e.x, e.ty - e.y) > 220) { e.x = e.tx; e.y = e.ty; }
+      next.push(e);
+    }
+    for (const e of old.values()) {
+      if (e.type === 'boss') {
+        boom(e.x, e.y, 110, BOSSES[e.boss].shot); G.shots = []; SFX.boss();
+        for (let i = 0; i < 4; i++) stain(e.x + rand(-30, 30), e.y + rand(-30, 30), e.r);
+      } else { blood(e.x, e.y, rand(-1, 1), rand(-1, 1), 14); stain(e.x, e.y, e.r); SFX.kill(); }
+    }
+    G.enemies = next;
+    const asked = new Set(G.pickups.filter(i => i.req).map(i => i.id));
+    G.pickups = (Array.isArray(d.pk) ? d.pk : []).map(a => ({ id: a[0], type: a[1] ? 'hp' : 'ammo', x: +a[2], y: +a[3], t: a[4] / 10, req: asked.has(a[0]) }));
+    if (Array.isArray(d.sh)) for (const s0 of d.sh) {
+      if (!s0 || typeof s0 !== 'object' || G.shots.length > 700) continue;
+      const s = { k: s0.k === 'mortar' ? 'mortar' : 'orb', x: +s0.x, y: +s0.y, vx: +s0.vx || 0, vy: +s0.vy || 0, r: +s0.r || 6, dmg: +s0.dmg || 0,
+        life: +s0.life || 5, color: String(s0.color || '#ff6b5a').slice(0, 9), boss: !!s0.boss, x0: +s0.x0, y0: +s0.y0, t: +s0.t || 0, max: +s0.max || 1 };
+      // catch the shot up for the time it spent queued and on the wire
+      const age = num(s0.ag, 2000) / 1000 + 0.05;
+      if (s.k === 'orb') { s.x += s.vx * age; s.y += s.vy * age; s.life -= age; } else s.t -= age;
+      G.shots.push(s);
+    }
+  }
+
+  function vsGuestEnemies(dt, p) {
+    const k = Math.min(1, dt * 12);
+    for (const e of G.enemies) {
+      const ox = e.x, oy = e.y;
+      e.x += (e.tx - e.x) * k; e.y += (e.ty - e.y) * k;
+      e.step += Math.hypot(e.x - ox, e.y - oy) * 0.08;
+      e.flash -= dt; e.tip = (e.tip || 0) - dt; e.gcool = (e.gcool || 0) - dt;
+      if (p.dead) continue;
+      const d = defOf(e), dist = Math.hypot(p.x - e.x, p.y - e.y) || 1;
+      if (dist < e.r + p.r + 2 && e.gcool <= 0) {
+        e.gcool = 0.8;
+        hurtPlayer(d.dmg * (e.type === 'boss' ? bossPow(e) : hostileMul()), (p.x - e.x) / dist, (p.y - e.y) / dist, e.type === 'boss');
+        if (G.state !== 'playing' || p.dead) return;
+      }
+    }
+  }
+
+  // the other player's soldier, bullets, swings and shockwaves, checked against you
+  function vsUpdate(dt) {
+    const v = G.vs, p = G.player, o = v.opp;
+    const k = Math.min(1, dt * 15);
+    o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k;
+    o.swing = Math.max(0, (o.swing || 0) - dt); o.spinFx = Math.max(0, (o.spinFx || 0) - dt);
+    o.flash = (o.flash || 0) - dt; o.hurt = (o.hurt || 0) - dt;
+    if (p.dot > 0 && !p.dead) { p.dot -= dt; hurtPlayer(p.dotDps * dt, 0, 0, true, 'opp', true); }
+    for (let i = v.oppBullets.length - 1; i >= 0; i--) {
+      const b = v.oppBullets[i];
+      b.px = b.x; b.py = b.y;
+      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+      let gone = b.life <= 0 || b.x < 0 || b.y < 0 || b.x > W || b.y > H;
+      if (!gone && inObstacle(b.x, b.y)) {
+        if (b.bounce > 0) { b.bounce--; if (!inObstacle(b.px, b.y)) b.vx = -b.vx; else b.vy = -b.vy; b.x = b.px; b.y = b.py; }
+        else { gone = true; sparks(b.px, b.py, b.vx, b.vy); }
+      }
+      if (!gone && !p.dead && Math.hypot(p.x - b.x, p.y - b.y) < p.r + 3) {
+        gone = true;
+        if (!(p.prot > 0)) {
+          let dmg = b.dmg * PVP;
+          if (b.exec && p.hp < p.maxHp * 0.35) dmg *= 1 + 0.5 * b.exec;
+          const l = Math.hypot(b.vx, b.vy) || 1;
+          hurtPlayer(dmg, b.vx / l, b.vy / l, false, 'opp');
+          if (b.burn && !p.dead) { p.dotDps = Math.max(p.dot > 0 ? p.dotDps : 0, b.burn * PVP); p.dot = 2; }
+        }
+      }
+      if (gone) v.oppBullets.splice(i, 1);
+    }
+    for (let i = v.oppWaves.length - 1; i >= 0; i--) {
+      const w = v.oppWaves[i];
+      w.r += 560 * dt;
+      if (!w.done && !p.dead && Math.hypot(p.x - w.x, p.y - w.y) <= w.r + p.r) {
+        w.done = true;
+        const l = Math.hypot(p.x - w.x, p.y - w.y) || 1;
+        hurtPlayer(w.dmg * PVP, (p.x - w.x) / l, (p.y - w.y) / l, false, 'opp');
+      }
+      if (w.r >= w.max) v.oppWaves.splice(i, 1);
+    }
+  }
+
+  // everything that arrives from the other player is untrusted: numbers are coerced and clamped as they land
+  function vsGame(d) {
+    const v = G.vs, p = G.player, o = v.opp;
+    v.heard = performance.now();
+    switch (d.t) {
+      case 'v.p':
+        Object.assign(o, { tx: +d.x || 0, ty: +d.y || 0, vx: +d.vx || 0, vy: +d.vy || 0, a: +d.a || 0, hp: num(d.hp, 9999), mh: num(d.mh, 9999) || 100,
+          dead: !!d.dd, prot: d.pt ? 1 : 0, melee: !!d.ml, g: GUN[d.g] ? d.g : 'carbine', m: MELEE_BY[d.m] ? d.m : 'machete',
+          gr: num(d.gr, 5), mr: num(d.mr, 5), pr: num(d.pk, PRANKS.length - 1), swing: Math.max(o.swing || 0, +d.sw || 0), swingDir: d.sd < 0 ? -1 : 1,
+          spinFx: Math.max(o.spinFx || 0, +d.sp || 0), banked: num(d.bk, 1e9), risk: num(d.rk, 1e9), kills: num(d.k, 1e6) });
+        if (d.fl) o.flash = 0.05;
+        if (d.hu) o.hurt = 0.2;
+        if (!o.seen0) { o.x = o.tx; o.y = o.ty; o.seen0 = true; }
+        break;
+      case 'v.b':
+        if (G.state !== 'playing' || !Array.isArray(d.b)) break;
+        for (const b of d.b.slice(0, 40)) {
+          if (!b || v.oppBullets.length > 400) break;
+          v.oppBullets.push({ x: +b.x || 0, y: +b.y || 0, vx: +b.vx || 0, vy: +b.vy || 0, life: Math.min(3, +b.l || 0), dmg: Math.min(200, Math.max(0, +b.d || 0)),
+            w: Math.min(6, +b.w || 2), k: ['knife', 'slash', 'moon', 'ball'].includes(b.k) ? b.k : '', bounce: num(b.bo, 3), burn: Math.min(10, +b.bu || 0), exec: num(b.ex, 3) });
+        }
+        break;
+      case 'v.sw': {
+        if (G.state !== 'playing' || p.dead) break;
+        const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy) || 1;
+        if (dist > Math.min(200, +d.r || 0) + p.r) break;
+        let da = Math.atan2(dy, dx) - (+d.a || 0);
+        da = Math.atan2(Math.sin(da), Math.cos(da));
+        if (Math.abs(da) > (+d.arc || 0) / 2 && dist > p.r * 2) break;
+        hurtPlayer(Math.min(200, +d.d || 0) * PVP, dx / dist, dy / dist, false, 'opp');
+        if (d.bl && !p.dead) { p.dotDps = Math.max(p.dot > 0 ? p.dotDps : 0, Math.min(10, +d.bl) * PVP); p.dot = 2; }
+        break;
+      }
+      case 'v.wv':
+        if (G.state === 'playing') v.oppWaves.push({ x: +d.x || 0, y: +d.y || 0, r: 8, max: Math.min(400, +d.max || 0), dmg: Math.min(200, +d.d || 0), done: false });
+        break;
+      case 'v.ds': {
+        if (G.state !== 'playing' || p.dead) break;
+        const sx = d.x1 - d.x0, sy = d.y1 - d.y0, len2 = sx * sx + sy * sy || 1;
+        const t = clamp(((p.x - d.x0) * sx + (p.y - d.y0) * sy) / len2, 0, 1);
+        const cx = d.x0 + sx * t, cy = d.y0 + sy * t, dist = Math.hypot(p.x - cx, p.y - cy) || 1;
+        if (dist <= p.r + 30) hurtPlayer(Math.min(200, +d.d || 0) * PVP, (p.x - cx) / dist, (p.y - cy) / dist, false, 'opp');
+        break;
+      }
+      case 'v.die': {
+        o.dead = true;
+        const stolen = num(d.stolen, 1e9), how = String(d.how || '').slice(0, 30);
+        blood(o.x, o.y, 0, 0, 24); stain(o.x, o.y, 18); boom(o.x, o.y, 60, '#d8453a');
+        if (d.credit) {
+          const bonus = killBonus();
+          v.risk += stolen; addScore(bonus); v.pvpKills++;
+          gainXp(p.melee ? G.melee : G.gun, 25);
+          G.banner = { title: `You took down ${v.name}`, sub: `Stole ${stolen.toLocaleString()} + ${bonus} bonus · ${how}`, t: 2.6 };
+        } else G.banner = { title: `${v.name} went down`, sub: 'Their at-risk score is lost', t: 2 };
+        break;
+      }
+      case 'v.s': if (v.role === 'guest') vsApplySnap(d); break;
+      case 'v.hits':
+        if (v.role !== 'host' || !Array.isArray(d.h)) break;
+        for (const h of d.h.slice(0, 200)) {
+          const e = Array.isArray(h) && G.enemies.find(x => x.id === h[0] && !x.dead);
+          if (!e) continue;
+          damage(e, { vx: +h[8] || 0.01, vy: +h[9] || 0, dmg: Math.min(500, Math.max(0, +h[1] || 0)), melee: !!h[2], burn: Math.min(10, +h[3] || 0),
+            bleed: Math.min(10, +h[4] || 0), chill: Math.min(0.45, +h[5] || 0), stun: Math.min(1, +h[6] || 0), kb: Math.min(6, +h[7] || 1), opp: true });
+        }
+        break;
+      case 'v.kill': {
+        if (v.role !== 'guest') break;
+        const pts = Math.round(Math.min(1e6, +d.pts || 0) * (pRank() >= 8 ? 1.1 : 1));
+        addScore(pts); G.kills++;
+        gainXp(d.ml ? G.melee : G.gun, num(d.xp, 30));
+        if (lvl('l_belt')) p.mag = Math.min(magSize(), p.mag + lvl('l_belt'));
+        floatText(+d.x || 0, +d.y || 0, '+' + pts, '#f2b134');
+        if (d.boss) G.banner = { title: 'Boss defeated', sub: `You landed the final blow · +${pts.toLocaleString()} points`, t: 2.4 };
+        break;
+      }
+      case 'v.pick': {
+        if (v.role !== 'host') break;
+        const i = G.pickups.findIndex(it => it.id === d.id);
+        if (i >= 0) { vsSend({ t: 'v.got', ty: G.pickups[i].type }); G.pickups.splice(i, 1); }
+        break;
+      }
+      case 'v.got':
+        if (p.dead) break;
+        if (d.ty === 'hp') { p.hp = Math.min(p.maxHp, p.hp + 30); floatText(p.x, p.y - 26, '+30 health', '#e7e2d4'); }
+        else { const n = rounds(24); p.res += n; floatText(p.x, p.y - 26, `+${n} rounds`, '#f2b134'); }
+        SFX.pickup();
+        break;
+      case 'v.ws':
+        if (v.role !== 'guest') break;
+        G.wave = num(d.n, 9999); G.endless = !!d.en; G.clearing = false;
+        if (d.bn && typeof d.bn === 'object') G.banner = { title: String(d.bn.title || '').slice(0, 60), sub: String(d.bn.sub || '').slice(0, 90), t: Math.min(4, +d.bn.t || 2) };
+        vsRespawn();
+        if (G.state === 'shop' || G.state === 'vsdecide') { G.state = 'playing'; ui.overlay.hidden = true; }
+        SFX.wave();
+        break;
+      case 'v.wc': if (v.role === 'guest' && G.state === 'playing') vsWaveCleared(); break;
+      case 'v.bn':
+        if (v.role === 'guest' && d.b && typeof d.b === 'object') G.banner = { title: String(d.b.title || '').slice(0, 60), sub: String(d.b.sub || '').slice(0, 90), t: Math.min(4, +d.b.t || 2) };
+        break;
+      case 'v.rd': v.oppReady = !!d.r; if (G.state === 'shop') showOverlay('shop'); break;
+      case 'v.kp':
+        v.oppKeep = true;
+        if (v.keep) { G.endless = true; vsOpenShop(); } else if (G.state === 'vsdecide') showOverlay('vsdecide');
+        break;
+      case 'v.end': vsEnd(d.reason === 'ff' ? 'ff-opp' : ['done', 'both'].includes(d.reason) ? d.reason : 'done', false, d.b, d.a); break;
+    }
+  }
+
+  function vsMsg(code, d) {
+    const L = FR.lobby, nm = (friends[code] && friends[code].name) || 'Your friend';
+    switch (d.t) {
+      case 'v.ch':
+        if (vsBusy() || FR.invite) { frSend(code, { t: 'v.busy' }); break; }
+        FR.invite = { code, name: cleanName(d.name) || nm };
+        frToast(); SFX.wave();
+        break;
+      case 'v.acc':
+        if (L && L.code === code && L.status === 'waiting') { L.status = 'lobby'; showOverlay('lobby'); }
+        break;
+      case 'v.dec': case 'v.busy':
+        if (L && L.code === code && L.status === 'waiting') {
+          FR.lobby = null;
+          FR.note = d.t === 'v.dec' ? `${nm} declined your challenge.` : `${nm} is busy right now.`;
+          boardFrom = 'title'; showOverlay('friends');
+        }
+        break;
+      case 'v.leave':
+        if (L && L.code === code) { FR.lobby = null; FR.note = `${nm} left the lobby.`; boardFrom = 'title'; showOverlay('friends'); }
+        if (FR.invite && FR.invite.code === code) { FR.invite = null; frToast(); }
+        break;
+      case 'v.rdy':
+        if (L && L.code === code) { L.oppReady = !!d.r; showOverlay('lobby'); vsMaybeGo(); }
+        break;
+      case 'v.go':
+        if (L && L.code === code && L.role === 'guest') startVersus('guest', code);
+        break;
+      default:
+        if (G.vs && G.vs.code === code && !G.vs.over) vsGame(d);
+    }
+  }
+
+  // importing on claude.ai also carries your best run onto the global leaderboard
+  async function postToBoard(run) {
+    if (!lbDb || !lbMe || !run) return;
+    try {
+      const ref = lbDb.doc('scores/' + lbMe), cur = await ref.get();
+      if (cur.exists && (cur.data().score || 0) >= run.score) return;
+      await ref.set(run);
+    } catch (e) {}
   }
 
   async function globalRows() {
@@ -1175,6 +1667,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     // the scythe drinks a little from everything it cuts, capped per swing
     if (m.scythe && hits) p.hp = Math.min(p.maxHp, p.hp + Math.min(2, 0.5 * hits));
+    if (G.vs) vsSend({ t: 'v.sw', x: p.x, y: p.y, a: p.a, arc, r: range, d: dmg, bl: fx.bleed });
     return hits;
   }
 
@@ -1186,6 +1679,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   function shockwave(x, y, max, dmg) {
     G.waves.push({ x, y, r: 8, max, dmg, hit: [] });
+    if (G.vs) vsSend({ t: 'v.wv', x, y, max, d: dmg });
     if (!reduceMotion) G.shake = Math.min(14, G.shake + max / 30);
     SFX.boom();
   }
@@ -1211,7 +1705,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   function swing() {
     const p = G.player, m = meleeDef();
-    p.cool = meleeRate(); p.swing = swingTime(); p.swingDir = -(p.swingDir || 1);
+    p.cool = meleeRate(); p.swing = swingTime(); p.swingDir = -(p.swingDir || 1); p.prot = 0;
     let dmg = meleeDmg();
     if (lvl('x_kflurry')) {
       p.stabN = (p.stabN || 0) + 1;
@@ -1242,7 +1736,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const specialDef = () => { const s = SPECIALS[G.melee]; return s && lvl(s.up) ? s : null; };
   function special() {
     const p = G.player, s = specialDef();
-    if (G.state !== 'playing' || !p.melee || !s || (p.spCool || 0) > 0) return;
+    if (G.state !== 'playing' || p.dead || !p.melee || !s || (p.spCool || 0) > 0) return;
+    p.prot = 0;
     s.run(lvl(s.up));
     p.spCool = s.cd(lvl(s.up));
   }
@@ -1264,6 +1759,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       if (meleeProof(e)) { immuneTip(e, 'GUNS ONLY'); continue; }
       damage(e, { vx: ca, vy: sa, dmg, kb: m.kb, melee: true });
     }
+    if (G.vs) vsSend({ t: 'v.ds', x0, y0, x1: x, y1: y, d: dmg });
     p.x = x; p.y = y; p.iframe = 0.25; p.swing = swingTime();
     SFX.swing();
   }
@@ -1272,7 +1768,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const p = G.player, g = gunDef(), ca = Math.cos(p.a), sa = Math.sin(p.a);
     const last = p.mag === 1;
     if (Math.random() >= ammoSave()) p.mag--;
-    p.cool = fireTime(); p.flash = 0.05;
+    p.cool = fireTime(); p.flash = 0.05; p.prot = 0;
     if (Math.random() < 0.15 * lvl('x_hfan')) p.cool = 0.06;
     const tip = g.len + 4, tx = p.x + ca * tip - sa * 6, ty = p.y + sa * tip + ca * 6;
     const n = pelletCount(), spread = g.spread * spreadMul(), multi = n > 1;
@@ -1325,6 +1821,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         : { title: `Wave ${n}`, sub: `${total} hostiles inbound`, t: 2 };
     }
     SFX.wave();
+    if (isHost()) {
+      vsRespawn();
+      vsSend({ t: 'v.ws', n, bn: G.banner, en: G.endless ? 1 : 0 });
+    }
   }
 
   function spawn(type) {
@@ -1372,21 +1872,29 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function kill(e) {
     const d = defOf(e);
     e.dead = true;
-    if (lvl('l_belt')) G.player.mag = Math.min(magSize(), G.player.mag + lvl('l_belt'));
-    gainXp(e.meleeHit ? G.melee : G.gun, e.type === 'boss' ? 30 : e.type === 'tank' || e.type === 'plated' ? 3 : 1);
-    const pts = Math.round((e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) : d.pts * (1 + (G.wave - 1) * 0.15)) * (pRank() >= 8 ? 1.1 : 1));
+    // in versus the host runs the world, so a kill the other player landed is credited to them over the wire
+    const theirs = isHost() && e.lastBy === 'opp';
+    const xp = e.type === 'boss' ? 30 : e.type === 'tank' || e.type === 'plated' ? 3 : 1;
+    const base = e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) : d.pts * (1 + (G.wave - 1) * 0.15);
+    const pts = Math.round(base * (pRank() >= 8 ? 1.1 : 1));
+    if (theirs) vsSend({ t: 'v.kill', pts: base, xp, ml: e.meleeHit ? 1 : 0, x: e.x, y: e.y, boss: e.type === 'boss' ? 1 : 0 });
+    else {
+      if (lvl('l_belt')) G.player.mag = Math.min(magSize(), G.player.mag + lvl('l_belt'));
+      gainXp(e.meleeHit ? G.melee : G.gun, xp);
+      addScore(pts); G.kills++;
+    }
     if (e.type === 'boss') {
-      G.score += pts; G.kills++;
       G.shots = [];
+      if (G.vs) { G.vs.clr = true; G.vs.eshots = []; }
       boom(e.x, e.y, 110, d.shot);
       for (let i = 0; i < 4; i++) stain(e.x + rand(-30, 30), e.y + rand(-30, 30), e.r);
-      G.pickups.push({ type: 'ammo', x: e.x, y: e.y, t: 15 });
-      G.banner = { title: `${bossName(d, e.loop)} defeated`, sub: `+${pts.toLocaleString()} points`, t: 2.4 };
+      G.pickups.push({ id: G.nextId++, type: 'ammo', x: e.x, y: e.y, t: 15 });
+      G.banner = { title: `${bossName(d, e.loop)} defeated`, sub: theirs ? `${G.vs.name} landed the final blow` : `+${pts.toLocaleString()} points`, t: 2.4 };
+      if (isHost() && !theirs) vsSend({ t: 'v.bn', b: { title: G.banner.title, sub: `${me.name || 'Your opponent'} landed the final blow`, t: 2.4 } });
       SFX.boss();
       return;
     }
-    G.score += pts; G.kills++;
-    floatText(e.x, e.y - e.r, '+' + pts, '#f2b134');
+    if (!theirs) floatText(e.x, e.y - e.r, '+' + pts, '#f2b134');
     blood(e.x, e.y, rand(-1, 1), rand(-1, 1), 14);
     stain(e.x, e.y, e.r);
     SFX.kill();
@@ -1394,13 +1902,23 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const r = Math.random();
     const sc = 1 + 0.3 * lvl('scav');
     const ammoChance = (p.res < rounds(24) ? 0.4 : 0.14) * sc;
-    if (r < ammoChance) G.pickups.push({ type: 'ammo', x: e.x, y: e.y, t: 12 });
+    if (r < ammoChance) G.pickups.push({ id: G.nextId++, type: 'ammo', x: e.x, y: e.y, t: 12 });
   }
 
   function damage(e, b) {
-    const bl = Math.hypot(b.vx, b.vy), nx = b.vx / bl, ny = b.vy / bl;
+    const bl = Math.hypot(b.vx, b.vy) || 1, nx = b.vx / bl, ny = b.vy / bl;
     let dealt = b.dmg || bulletDmg();
     if (b.exec && e.hp < e.max * 0.35) dealt *= 1 + 0.5 * b.exec;
+    // the guest only shows the hit; the host applies it to the real hostile
+    if (isGuest()) {
+      G.vs.hitsOut.push([e.id, +dealt.toFixed(2), b.melee ? 1 : 0, b.burn || 0, b.bleed || 0, b.chill || 0, b.stun || 0, b.kb || 1, +nx.toFixed(2), +ny.toFixed(2)]);
+      e.flash = 0.08;
+      if (b.crit) floatText(e.x, e.y - e.r - 6, 'CRIT', '#ffe2a0');
+      blood(e.x, e.y, nx, ny, 5);
+      SFX.hit();
+      return;
+    }
+    e.lastBy = b.opp ? 'opp' : 'me';
     e.hp -= dealt; e.flash = 0.08; e.meleeHit = !!b.melee;
     phaseHit(e, dealt);
     // burning and bleeding tick for 2s; a new hit refreshes it rather than stacking
@@ -1429,25 +1947,37 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       : { title: 'Shield broken', sub: 'Any weapon works', t: 1.4 };
     boom(e.x, e.y, e.r * 1.5, sh === 'melee' ? '#78c8ff' : sh === 'gun' ? '#c88cff' : '#ffffff');
     SFX.swap();
+    if (isHost()) vsSend({ t: 'v.bn', b: G.banner });
   }
 
   function splash(x, y, r, dmg, skip) {
     boom(x, y, r, '#ffcf6b');
     for (const o of G.enemies) {
       if (o.dead || o === skip || gunProof(o)) continue;
-      if (Math.hypot(o.x - x, o.y - y) < r + o.r) { o.hp -= dmg; o.flash = 0.08; phaseHit(o, dmg); if (o.hp <= 0) kill(o); }
+      if (Math.hypot(o.x - x, o.y - y) >= r + o.r) continue;
+      if (isGuest()) { damage(o, { vx: o.x - x || 0.01, vy: o.y - y, dmg }); continue; }
+      o.lastBy = 'me';
+      o.hp -= dmg; o.flash = 0.08; phaseHit(o, dmg); if (o.hp <= 0) kill(o);
     }
   }
 
-  function hurtPlayer(dmg, nx, ny, ignoreArmor) {
+  // src 'opp' marks damage from the other player in versus; quiet skips the knockback and flash (burn ticks)
+  function hurtPlayer(dmg, nx, ny, ignoreArmor, src, quiet) {
     const p = G.player;
-    if (G.state !== 'playing' || p.iframe > 0) return;
-    p.hp = Math.max(0, p.hp - dmg * (ignoreArmor ? 1 : 1 - 0.08 * lvl('plates')));
-    p.hurt = 0.3;
-    if (!reduceMotion) G.shake = Math.min(14, G.shake + 8);
-    p.vx += nx * 260; p.vy += ny * 260;
-    SFX.hurt();
-    blood(p.x, p.y, nx, ny, 4);
+    if (G.state !== 'playing' || p.iframe > 0 || p.dead || p.prot > 0) return;
+    const taken = dmg * (ignoreArmor ? 1 : 1 - 0.08 * lvl('plates'));
+    p.hp = Math.max(0, p.hp - taken);
+    if (G.vs) {
+      if (src === 'opp') { G.vs.oppDmg += taken; G.vs.lastHitBy = 'opp'; }
+      else G.vs.lastHitBy = 'world';
+    }
+    if (!quiet) {
+      p.hurt = 0.3;
+      if (!reduceMotion) G.shake = Math.min(14, G.shake + 8);
+      p.vx += nx * 260; p.vy += ny * 260;
+      SFX.hurt();
+      blood(p.x, p.y, nx, ny, 4);
+    }
     if (p.hp <= 0 && lvl('p_wind') && !G.windUsed) {
       G.windUsed = true; p.hp = lvl('p_wind') >= 2 ? 30 : 1; p.iframe = 1;
       floatText(p.x, p.y - 30, 'SECOND WIND', '#dfeef4');
@@ -1457,11 +1987,16 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       G.banner = { title: 'Revived', sub: 'Mythic rank · once per run', t: 2.2 };
       boom(p.x, p.y, 120, '#ff7ad9');
     }
-    if (p.hp <= 0) gameOver();
+    if (p.hp <= 0) { if (G.vs) vsDie(); else gameOver(); }
   }
 
+  // hostile shots; the host also queues each new one for the guest's copy of the world
+  function addShot(s) {
+    G.shots.push(s);
+    if (isHost()) G.vs.eshots.push(Object.assign({ ag: performance.now() }, s));
+  }
   function fire(x, y, a, spd, r, dmg, color, boss) {
-    G.shots.push({ k: 'orb', x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r, dmg, life: 5, color, boss: !!boss });
+    addShot({ k: 'orb', x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r, dmg, life: 5, color, boss: !!boss });
   }
 
   function boom(x, y, r, color) {
@@ -1481,7 +2016,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   });
 
   function bossAttack(e, name, aim) {
-    const b = BOSSES[e.boss], p = G.player, tier = e.boss + 1;
+    const b = BOSSES[e.boss], p = vsTarget(e, G.player), tier = e.boss + 1;
     const spd = (230 + tier * 14) * bossSpd(e), dmg = Math.round((8 + tier) * 1.2 * bossPow(e));
     // lead the target so running in a straight line no longer dodges everything
     const fly = Math.hypot(p.x - e.x, p.y - e.y) / spd;
@@ -1527,7 +2062,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           const tx = clamp(p.x + (i ? rand(-140, 140) : p.vx * 0.9), 30, W - 30);
           const ty = clamp(p.y + (i ? rand(-140, 140) : p.vy * 0.9), 30, H - 30);
           const t = 1.1 + i * 0.12;
-          G.shots.push({ k: 'mortar', x0: e.x, y0: e.y, x: tx, y: ty, t, max: t, r: 70, dmg: dmg + 6, color: b.shot, boss: true });
+          addShot({ k: 'mortar', x0: e.x, y0: e.y, x: tx, y: ty, t, max: t, r: 70, dmg: dmg + 6, color: b.shot, boss: true });
         }
         break;
       }
@@ -1569,7 +2104,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       }
       if (m.k === 'fade') {
         if (m.t <= 0) {
-          const p = G.player;
+          const p = vsTarget(e, G.player);
           for (let i = 0; i < 25; i++) {
             const x = rand(80, W - 80), y = rand(80, H - 80);
             if (Math.hypot(x - p.x, y - p.y) > 260 && !blocked(x, y, e.r)) { e.x = x; e.y = y; break; }
@@ -1610,9 +2145,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function update(dt) {
     const p = G.player;
     if (G.banner.t > 0) G.banner.t -= dt;
+    p.prot = Math.max(0, (p.prot || 0) - dt);
 
+    // a downed versus player sits out until the next wave
+    if (!p.dead) {
     // movement
-    let mx = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
+    let mx =(keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
     let my = (keys.s || keys.arrowdown ? 1 : 0) - (keys.w || keys.arrowup ? 1 : 0);
     if (touch.move) { const v = stick(touch.move); mx += v.x; my += v.y; }
     const ml = Math.hypot(mx, my);
@@ -1646,6 +2184,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       else if (p.res > 0) tryReload();
       else { SFX.dry(); p.cool = 0.35; }
     }
+    }
 
     // bullets
     for (let i = G.bullets.length - 1; i >= 0; i--) {
@@ -1661,6 +2200,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           if (!inObstacle(b.px, b.y)) b.vx = -b.vx; else b.vy = -b.vy;
           b.x = b.px; b.y = b.py; b.hits = [];
         } else dead = true;
+      }
+      // your bullets stop on the other player's soldier; their own game decides the damage
+      if (!dead && G.vs) {
+        const o = G.vs.opp;
+        if (o.seen0 && !o.dead && !o.prot && Math.hypot(o.x - b.x, o.y - b.y) < 18) { dead = true; blood(b.x, b.y, b.vx, b.vy, 3); }
       }
       if (!dead) for (const e of G.enemies) {
         if (e.dead || (b.hits && b.hits.includes(e.id))) continue;
@@ -1698,7 +2242,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const spdMul = Math.min(1.8 + 0.02 * extraWaves(), 2.3, 1 + 0.05 * (G.wave - 1));
     // runners stay a bit slower than you, so one sitting inside you can always be outrun
     const runnerCap = moveSpeed() * 0.8;
-    for (const e of G.enemies) {
+    if (isGuest()) vsGuestEnemies(dt, p);
+    else for (const e of G.enemies) {
       if (e.dead) continue;
       if (e.dot > 0) {
         e.dot -= dt;
@@ -1709,8 +2254,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         if (Math.random() < dt * 10) addPart({ k: 'spark', x: e.x + rand(-0.6, 0.6) * e.r, y: e.y + rand(-0.6, 0.6) * e.r,
           vx: 0, vy: -60, life: 0.3, max: 0.3, drag: 2, color: e.dotMelee ? '#c2261b' : '#ff8a3c' });
       }
-      const d = defOf(e);
-      let dx = p.x - e.x, dy = p.y - e.y;
+      const d = defOf(e), tg = vsTarget(e, p);
+      let dx = tg.x - e.x, dy = tg.y - e.y;
       const dist = Math.hypot(dx, dy) || 1;
       dx /= dist; dy /= dist;
       e.a = Math.atan2(dy, dx);
@@ -1756,10 +2301,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       } else e.stuck = Math.max(0, e.stuck - dt);
       e.flash -= dt; e.cool -= dt; e.tip = (e.tip || 0) - dt; e.step += dt * spd * 0.08;
 
-      if (dist < e.r + p.r + 2 && e.cool <= 0) {
+      // only your own soldier takes contact damage here; in versus the other player's game handles theirs
+      const pd = Math.hypot(p.x - e.x, p.y - e.y) || 1;
+      if (!p.dead && pd < e.r + p.r + 2 && e.cool <= 0) {
         e.cool = 0.8;
         if (e.type === 'runner') e.slow = 0.6;
-        hurtPlayer(d.dmg * (e.type === 'boss' ? bossPow(e) : hostileMul()), dx, dy, e.type === 'boss');
+        hurtPlayer(d.dmg * (e.type === 'boss' ? bossPow(e) : hostileMul()), (p.x - e.x) / pd, (p.y - e.y) / pd, e.type === 'boss');
         if (G.state !== 'playing') return;
       }
     }
@@ -1773,7 +2320,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         G.shots.splice(i, 1);
         boom(s.x, s.y, s.r, s.color);
         const hd = Math.hypot(p.x - s.x, p.y - s.y) || 1;
-        if (hd < s.r + p.r * 0.5) {
+        if (!p.dead && hd < s.r + p.r * 0.5) {
           hurtPlayer(s.dmg, (p.x - s.x) / hd, (p.y - s.y) / hd, s.boss);
           if (G.state !== 'playing') return;
         }
@@ -1783,7 +2330,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       if (s.life <= 0 || s.x < -20 || s.y < -20 || s.x > W + 20 || s.y > H + 20) { G.shots.splice(i, 1); continue; }
       // boss shots fly straight through walls; gunner shots don't
       if (!s.boss && inObstacle(s.x, s.y)) { sparks(s.x, s.y, s.vx, s.vy); G.shots.splice(i, 1); continue; }
-      if (Math.hypot(p.x - s.x, p.y - s.y) < s.r + p.r - 3) {
+      if (!p.dead && !(p.prot > 0) && Math.hypot(p.x - s.x, p.y - s.y) < s.r + p.r - 3) {
         G.shots.splice(i, 1);
         const sl = Math.hypot(s.vx, s.vy) || 1;
         hurtPlayer(s.dmg, s.vx / sl, s.vy / sl, s.boss);
@@ -1791,12 +2338,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       }
     }
 
-    // pickups
+    // pickups (the guest asks the host for each one, so only one player can take it)
     for (let i = G.pickups.length - 1; i >= 0; i--) {
       const it = G.pickups[i];
       it.t -= dt;
       if (it.t <= 0) { G.pickups.splice(i, 1); continue; }
-      if (Math.hypot(it.x - p.x, it.y - p.y) < p.r + 14 + 14 * lvl('scav')) {
+      const near = !p.dead && Math.hypot(it.x - p.x, it.y - p.y) < p.r + 14 + 14 * lvl('scav');
+      if (isGuest()) { if (near && !it.req) { it.req = true; vsSend({ t: 'v.pick', id: it.id }); } continue; }
+      if (near) {
         if (it.type === 'hp') { p.hp = Math.min(p.maxHp, p.hp + 30); floatText(p.x, p.y - 26, '+30 health', '#e7e2d4'); }
         else { const n = rounds(24); p.res += n; floatText(p.x, p.y - 26, `+${n} rounds`, '#f2b134'); }
         SFX.pickup();
@@ -1815,21 +2364,32 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       if (q.vr) { q.rot += q.vr * dt; q.vr *= dr; }
     }
 
-    // waves
-    if (G.queue.length) {
+    // waves (in versus only the host spawns them; the guest follows its wave messages)
+    if (isGuest()) {
+      if (G.clearing) { G.inter -= dt; if (G.inter <= 0) { G.clearing = false; vsAfterClear(); } }
+    } else if (G.queue.length) {
       G.spawnT -= dt;
       if (G.spawnT <= 0) { spawn(G.queue.shift()); G.spawnT = Math.max(0.25, 0.9 - G.wave * 0.05); }
-    } else if (!G.enemies.length) {
+    } else if (!G.enemies.length && G.wave > 0) {
       if (!G.clearing) {
         G.clearing = true; G.inter = 1.6;
-        const bonus = rounds(36);
-        p.res += bonus; G.score += G.wave * 25;
-        G.banner = { title: `Wave ${G.wave} cleared`, sub: `+${bonus} rounds · +${G.wave * 25} points`, t: 1.6 };
-        SFX.pickup();
+        if (G.vs) { vsWaveCleared(); vsSend({ t: 'v.wc' }); }
+        else {
+          const bonus = rounds(36);
+          p.res += bonus; addScore(G.wave * 25);
+          G.banner = { title: `Wave ${G.wave} cleared`, sub: `+${bonus} rounds · +${G.wave * 25} points`, t: 1.6 };
+          SFX.pickup();
+        }
       } else {
         G.inter -= dt;
-        if (G.inter <= 0) { G.clearing = false; if (G.wave >= 30 && !G.endless) win(); else openShop(); }
+        if (G.inter <= 0) { G.clearing = false; if (G.vs) vsAfterClear(); else if (G.wave >= 30 && !G.endless) win(); else openShop(); }
       }
+    }
+
+    if (G.vs) {
+      vsUpdate(dt);
+      if (G.state !== 'playing') return;
+      if (isHost() && p.dead && G.vs.opp.dead) vsEnd('both', true);
     }
 
     G.shake = Math.max(0, G.shake - dt * 40);
@@ -1858,12 +2418,28 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
   }
 
-  function drawPlayer(p) {
+  // what a soldier carries and how they're ranked, so the same drawing serves you and your versus opponent
+  const localLook = () => ({ gun: gunDef(), mel: meleeDef(), gr: gunRank(), mr: meleeRank(), pr: pRank(), st: swingTime(), range: meleeRange() });
+  function oppLook(o) {
+    const mel = MELEE_BY[o.m] || MELEE[0];
+    return { gun: GUN[o.g] || GUNS[0], mel, gr: clamp(o.gr || 0, 0, 5), mr: clamp(o.mr || 0, 0, 5), pr: clamp(o.pr || 0, 0, PRANKS.length - 1),
+      st: Math.min(0.2, mel.rate * 0.6), range: mel.range };
+  }
+  function drawPlayer(p, L) {
+    L = L || localLook();
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ellipse(3, 5, 17, 15);
+    if (p.prot > 0) {
+      // spawn protection: a shimmering shield ring
+      const t = performance.now() / 1000;
+      ctx.strokeStyle = `rgba(150,220,255,${0.45 + 0.3 * Math.sin(t * 12)})`; ctx.lineWidth = 3;
+      ctx.setLineDash([6, 5]); ctx.lineDashOffset = -t * 40;
+      ctx.beginPath(); ctx.arc(0, 0, 27, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     // player rank cosmetics: Master and up get a pulsing aura, Mythic's cycles through colours
-    const pr = pRank(), pc = PRANKS[pr].color;
+    const pr = L.pr, pc = PRANKS[pr].color;
     if (pr >= 6) {
       const t = performance.now() / 1000;
       ctx.save();
@@ -1874,25 +2450,25 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     ctx.rotate(p.a);
     const blink = p.hurt > 0 && Math.floor(p.hurt * 30) % 2 === 0;
-    const g = gunDef();
+    const g = L.gun;
     if (p.melee) {
       // the swing sweeps across the arc; at rest the weapon is held off to the side
-      const m = meleeDef(), T = swingTime(), dir = p.swingDir || 1;
+      const m = L.mel, T = L.st, dir = p.swingDir || 1;
       const prog = p.swing > 0 ? 1 - p.swing / T : -1;
-      const off = prog >= 0 ? dir * (-m.arc / 2 + m.arc * prog) : 0.9;
+      const off = prog >= 0 ? dir * (-m.arc / 2 + m.arc * Math.min(1, prog)) : 0.9;
       if (prog >= 0) {
         const from = -dir * m.arc / 2;
-        ctx.strokeStyle = meleeRank() >= 5 ? `rgba(127,232,255,${0.55 * (1 - prog)})` : `rgba(255,240,210,${0.4 * (1 - prog)})`; ctx.lineWidth = 6; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.arc(0, 0, meleeRange() * 0.85, Math.min(from, off), Math.max(from, off)); ctx.stroke();
+        ctx.strokeStyle = L.mr >= 5 ? `rgba(127,232,255,${0.55 * (1 - prog)})` : `rgba(255,240,210,${0.4 * (1 - prog)})`; ctx.lineWidth = 6; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.arc(0, 0, L.range * 0.85, Math.min(from, off), Math.max(from, off)); ctx.stroke();
       }
       if (p.spinFx > 0) {
         ctx.strokeStyle = `rgba(200,150,255,${p.spinFx / 0.3 * 0.6})`; ctx.lineWidth = 8;
-        ctx.beginPath(); ctx.arc(0, 0, meleeRange() * 1.1, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 0, L.range * 1.1, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.save();
       ctx.rotate(off); ctx.translate(10, 0);
       // mastery cosmetics: bronze grip, then a blade in the rank's colour, then a glow
-      const mk = meleeRank(), mc = RANKS[mk].color;
+      const mk = L.mr, mc = RANKS[mk].color;
       ctx.fillStyle = mk === 1 ? mc : m.grip; ctx.fillRect(0, -m.w / 2 - 0.5, 9, m.w + 1);
       if (mk >= 4) { ctx.shadowColor = mc; ctx.shadowBlur = 10; }
       ctx.fillStyle = mk >= 2 && !m.scythe ? mc : m.blade; ctx.fillRect(9, -m.w / 2, m.len, m.w);
@@ -1911,7 +2487,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       ctx.restore();
     } else {
       // rifle, finished in its mastery colour
-      const rk = gunRank(), rc = RANKS[rk].color, gh = g.id === 'shotgun' || g.id === 'lmg' ? 7 : 6;
+      const rk = L.gr, rc = RANKS[rk].color, gh = g.id === 'shotgun' || g.id === 'lmg' ? 7 : 6;
       if (rk >= 4) { ctx.shadowColor = rc; ctx.shadowBlur = 10; }
       ctx.fillStyle = rk >= 2 ? rc : '#15181a'; ctx.fillRect(4, 3, g.len, gh);
       ctx.shadowBlur = 0;
@@ -2185,6 +2761,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     ctx.restore();
   }
 
+  function drawOpponent() {
+    const o = G.vs.opp;
+    if (!o.seen0 || o.dead) return;
+    drawPlayer(o, oppLook(o));
+    // name tag and health bar so you always know which soldier is them
+    const w = 40, f = clamp(o.hp / (o.mh || 100), 0, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(o.x - w / 2, o.y - 34, w, 5);
+    ctx.fillStyle = '#ff6b5a'; ctx.fillRect(o.x - w / 2, o.y - 34, w * f, 5);
+    ctx.font = '600 13px "Chakra Petch", sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffb3a8'; ctx.fillText(G.vs.name, o.x, o.y - 40);
+  }
+
   function render(now) {
     const t = now / 1000, p = G.player;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2210,9 +2798,23 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       ctx.strokeStyle = `rgba(120,90,50,${0.5 * a})`; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(w.x, w.y, w.r * 0.8, 0, Math.PI * 2); ctx.stroke();
     }
+    if (G.vs) for (const w of G.vs.oppWaves) {
+      const a = Math.max(0, 1 - w.r / w.max);
+      ctx.strokeStyle = `rgba(255,120,110,${0.8 * a})`; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2); ctx.stroke();
+    }
     for (const e of G.enemies) drawEnemy(e);
-    drawPlayer(p);
+    if (!p.dead) drawPlayer(p);
+    if (G.vs) drawOpponent();
     ctx.lineCap = 'round';
+    if (G.vs) for (const b of G.vs.oppBullets) {
+      if (b.k) { drawMeleeShot(b); continue; }
+      const tx = b.x - b.vx * 0.022, ty = b.y - b.vy * 0.022;
+      ctx.strokeStyle = 'rgba(255,90,80,0.4)'; ctx.lineWidth = (b.w || 2) * 2.5;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.strokeStyle = '#ffb3a8'; ctx.lineWidth = b.w || 2;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
     const diamond = gunRank() >= 5;
     for (const b of G.bullets) {
       if (b.k) { drawMeleeShot(b); continue; }
@@ -2281,7 +2883,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     banner: $('banner'), bannerTitle: $('bannerTitle'), bannerSub: $('bannerSub'), overlay: $('overlay'),
     pause: $('pauseBtn'), mute: $('muteBtn'), reload: $('reloadBtn'), swap: $('swapBtn'), specialBtn: $('specialBtn'), sp: $('spLabel'), hud: $('hud'),
     bossBar: $('bossBar'), bossName: $('bossName'), bossTitle: $('bossTitle'), bossFill: $('bossFill'),
-    mGun: $('mGun'), mGunFill: $('mGunFill'), mMel: $('mMel'), mMelFill: $('mMelFill'), mPl: $('mPl'), mPlFill: $('mPlFill')
+    mGun: $('mGun'), mGunFill: $('mGunFill'), mMel: $('mMel'), mMelFill: $('mMelFill'), mPl: $('mPl'), mPlFill: $('mPlFill'),
+    scoreLabel: $('scoreLabel'), bestLine: $('bestLine'), vsLine: $('vsLine')
   };
   function mastHud(id, label, fill, ranks = RANKS, name = (GUN[id] || MELEE_BY[id] || {}).name) {
     const xp = xpOf(id), r = rankIn(ranks, xp), nx = ranks[r + 1];
@@ -2298,10 +2901,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     setText(ui.hpNum, Math.ceil(p.hp));
     setText(ui.wave, Math.max(1, G.wave));
     setText(ui.waveLabel, G.endless ? 'Endless wave' : 'Wave');
-    const left = G.enemies.length + G.queue.length;
+    const left = isGuest() ? G.vs.hostiles : G.enemies.length + G.queue.length;
     setText(ui.hostiles, left === 1 ? '1 hostile' : left + ' hostiles');
-    setText(ui.score, G.score.toLocaleString());
-    setText(ui.best, Math.max(best, G.score).toLocaleString());
+    const v = G.vs;
+    if (ui.vsLine.hidden === !!v) ui.vsLine.hidden = !v;
+    if (ui.bestLine.hidden !== !!v) ui.bestLine.hidden = !!v;
+    if (v) {
+      setText(ui.scoreLabel, 'Banked');
+      setText(ui.score, v.banked.toLocaleString());
+      setText(ui.vsLine, `At risk +${v.risk.toLocaleString()} · ${v.name} ${((v.opp.banked || 0) + (v.opp.risk || 0)).toLocaleString()}`);
+    } else {
+      setText(ui.scoreLabel, 'Score');
+      setText(ui.score, G.score.toLocaleString());
+      setText(ui.best, Math.max(best, G.score).toLocaleString());
+    }
     setText(ui.kills, G.kills);
     setText(ui.mag, p.melee ? '—' : p.mag);
     setText(ui.res, p.res);
@@ -2331,7 +2944,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       ui.bossFill.style.width = Math.max(0, boss.hp / boss.max) * 100 + '%';
     }
     ui.hud.style.opacity = G.state === 'title' ? '0.35' : '1';
-    setText(ui.pause, G.state === 'paused' ? 'Resume' : 'Pause');
+    setText(ui.pause, G.vs ? 'Forfeit' : G.state === 'paused' ? 'Resume' : 'Pause');
   }
 
   // ---------- screens ----------
@@ -2408,7 +3021,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (!rows.length) return `<p class="note">${local ? 'No runs finished on this device yet.' : 'No scores yet. Finish a run to post the first one.'}</p>`;
     const body = rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="n">${i + 1}</td>
       <td class="who">${esc(local ? new Date(r.at).toLocaleDateString() : r.name)}${PRANKS[Number(r.prank)] && Number(r.prank) > 0
-        ? ` <span class="rk" style="color:${PRANKS[Number(r.prank)].color}">${PRANKS[Number(r.prank)].name}</span>` : ''}${r.endless ? ' · Endless' : ''}</td>
+        ? ` <span class="rk" style="color:${PRANKS[Number(r.prank)].color}">${PRANKS[Number(r.prank)].name}</span>` : ''}${r.vs ? ' · Versus' : r.endless ? ' · Endless' : ''}</td>
       <td>${esc((GUN[r.gun] || GUNS[0]).name)}</td><td class="n">${r.wave}</td><td class="n">${Number(r.score).toLocaleString()}</td></tr>`).join('');
     return `<div class="boardwrap"><table class="board"><thead><tr><th class="n">#</th><th>${local ? 'Date' : 'Player'}</th><th>Gun</th><th class="n">Wave</th><th class="n">Score</th></tr></thead>
       <tbody>${body}</tbody></table></div>`;
@@ -2448,6 +3061,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       return `<li><span class="dot${on ? ' on' : ''}" title="${on ? 'Online' : 'Offline'}"></span>
         <div class="info"><b>${esc(f.name || 'Player')}${pr ? ` <span class="rk" style="color:${pr.color}">${pr.name}</span>` : ''}</b>
         <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0} · ${seen}</span></div>
+        ${on ? `<button type="button" class="buy" data-fr="challenge" data-code="${c}">Challenge</button>` : ''}
         <button type="button" class="ghost" data-fr="remove" data-code="${c}">Remove</button></li>`;
     }).join('');
     el.innerHTML = `<p class="note">${status}</p>
@@ -2460,6 +3074,13 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // a friend request pops up wherever you are in the game
   function frToast() {
     const t = $('toast'), codes = Object.keys(FR.pending);
+    if (FR.invite) {
+      t.innerHTML = `<span><b>${esc(FR.invite.name)}</b> challenges you to Versus</span>
+        <button type="button" class="buy" data-fr="vsyes">Accept</button>
+        <button type="button" class="ghost" data-fr="vsno">Decline</button>`;
+      t.hidden = false;
+      return;
+    }
     if (!codes.length || FR.view) { t.hidden = true; return; }
     const c = codes[0];
     t.innerHTML = `<span><b>${esc(FR.pending[c])}</b> wants to be your friend</span>
@@ -2473,6 +3094,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const a = b.dataset.fr, code = b.dataset.code;
     if (a === 'accept') frAccept(code);
     else if (a === 'decline') frDecline(code);
+    else if (a === 'challenge') frChallenge(code);
+    else if (a === 'vsyes') vsAcceptInvite();
+    else if (a === 'vsno') vsDeclineInvite();
     else if (a === 'remove') frRemove(code);
     else if (a === 'add') { const i = $('frAdd'); frAdd(i ? i.value : ''); if (i && FR.outgoing[cleanCode(i.value)]) i.value = ''; }
     else if (a === 'name') {
@@ -2536,6 +3160,78 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         <p class="note newbest frnote" id="tfNote"></p>
         <p class="note">Importing keeps the higher value of everything, so it never lowers your progress here.</p>
         <div class="actions"><button type="button" class="ghost" data-act="back">Back</button></div>
+      </div>`;
+      o.hidden = false;
+      return;
+    }
+    if (kind === 'lobby' && FR.lobby) {
+      const L = FR.lobby, nm = esc(L.name), waiting = L.status === 'waiting';
+      o.innerHTML = `<div class="brief wide">
+        <p class="eyebrow">Versus survival</p>
+        <h1>${waiting ? 'Challenge sent' : 'Lobby'}</h1>
+        <p class="lede">You vs <b>${nm}</b>. Waves, hostiles and bosses like the normal game, but you can take each other down. Survive a wave to bank what you earned in it; go down and your opponent can steal it. Most score wins.</p>
+        ${waiting ? `<p class="note">Waiting for ${nm} to accept…</p>` : `
+          ${loadoutHtml()}
+          <div class="wallet"><span class="label">You · ${L.ready ? 'ready' : 'picking'}</span><b>${nm} · ${L.oppReady ? 'ready' : 'picking'}</b></div>`}
+        <div class="actions">
+          ${waiting ? '' : `<button type="button" class="cta" data-act="vsready">${L.ready ? 'Not ready' : 'Ready'}</button>`}
+          <button type="button" class="ghost" data-act="vsleave">${waiting ? 'Cancel' : 'Leave'}</button>
+        </div>
+      </div>`;
+      o.hidden = false;
+      return;
+    }
+    if (kind === 'vsdecide' && G.vs) {
+      const v = G.vs, mine = v.banked + v.risk, theirs = (v.opp.banked || 0) + (v.opp.risk || 0);
+      o.innerHTML = `<div class="brief">
+        <p class="eyebrow">Wave 30 cleared · Pigmageddon is down</p>
+        <h1>${mine > theirs ? 'You’re ahead' : mine < theirs ? `${esc(v.name)} leads` : 'Dead level'}</h1>
+        <div class="stats">
+          <div><span class="label">You</span><b class="${mine >= theirs ? 'newbest' : ''}">${mine.toLocaleString()}</b></div>
+          <div><span class="label">${esc(v.name)}</span><b class="${theirs >= mine ? 'newbest' : ''}">${theirs.toLocaleString()}</b></div>
+        </div>
+        <p class="lede">End it here and the higher score wins, or keep going into Endless with the bosses coming back stronger. Both of you have to choose to keep going.</p>
+        ${v.keep ? `<p class="note">You chose to keep going. Waiting for ${esc(v.name)}…</p>` : ''}
+        <div class="actions">
+          ${v.keep ? '' : '<button type="button" class="cta" data-act="vskeep">Keep going</button>'}
+          <button type="button" class="ghost" data-act="vsend">End match</button>
+        </div>
+      </div>`;
+      o.hidden = false;
+      return;
+    }
+    if (kind === 'vsover' && G.vs && G.vs.result) {
+      const v = G.vs, r = v.result, nm = esc(v.name);
+      const why = { 'ff-opp': `${nm} forfeited.`, 'ff-me': 'You forfeited.', disconnect: `${nm} disconnected.`,
+        both: 'You both went down at once.', done: `Match ended after wave ${G.wave}.` }[r.reason] || '';
+      o.innerHTML = `<div class="brief">
+        <p class="eyebrow">Versus · ${why}</p>
+        <h1>${r.win > 0 ? 'Victory' : r.win < 0 ? 'Defeat' : 'Draw'}</h1>
+        <div class="stats">
+          <div><span class="label">Your score</span><b class="${r.win >= 0 ? 'newbest' : ''}">${r.my.toLocaleString()}</b></div>
+          <div><span class="label">${nm}</span><b class="${r.win <= 0 ? 'newbest' : ''}">${r.op.toLocaleString()}</b></div>
+          <div><span class="label">Hostiles down</span><b>${G.kills}</b></div>
+          <div><span class="label">Times you took ${nm} down</span><b>${v.pvpKills}</b></div>
+        </div>
+        ${xpLine()}
+        <div class="actions">
+          ${isOnline(v.code) ? '<button type="button" class="cta" data-act="vsrematch">Rematch</button>' : ''}
+          <button type="button" class="ghost" data-act="friends">Friends</button>
+          <button type="button" class="ghost" data-act="quit">Main menu</button>
+        </div>
+      </div>`;
+      o.hidden = false;
+      return;
+    }
+    if (kind === 'vsmenu' && G.vs) {
+      o.innerHTML = `<div class="brief">
+        <p class="eyebrow">Versus · the match keeps running</p>
+        <h1>Match menu</h1>
+        <p class="note">There’s no pausing in versus. Forfeiting ends the match and ${esc(G.vs.name)} wins.</p>
+        <div class="actions">
+          <button type="button" class="cta" data-act="vsclose">Keep fighting</button>
+          <button type="button" class="ghost" data-act="vsff">Forfeit match</button>
+        </div>
       </div>`;
       o.hidden = false;
       return;
@@ -2661,7 +3357,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       chosenGun = b.dataset.gun;
       try { localStorage.setItem('nightops-gun', chosenGun); } catch (err) {}
       if (G.state === 'title') G = freshState(chosenGun);
-      showOverlay(G.state);
+      showOverlay(FR.lobby ? 'lobby' : G.state);
       const again = ui.overlay.querySelector(`[data-gun="${chosenGun}"]`);
       if (again) again.focus({ preventScroll: true });
     }
@@ -2669,7 +3365,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       chosenMelee = b.dataset.melee;
       try { localStorage.setItem('nightops-melee', chosenMelee); } catch (err) {}
       if (G.state === 'title') G = freshState(chosenGun);
-      showOverlay(G.state);
+      showOverlay(FR.lobby ? 'lobby' : G.state);
       const again = ui.overlay.querySelector(`[data-melee="${chosenMelee}"]`);
       if (again) again.focus({ preventScroll: true });
     }
@@ -2682,7 +3378,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       }
     }
     else if (act === 'board') { if (G.state !== 'title' && G.state !== 'over' && G.state !== 'won') return; boardFrom = G.state; showOverlay('board'); }
-    else if (act === 'friends') { if (G.state !== 'title') return; boardFrom = 'title'; FR.note = ''; showOverlay('friends'); }
+    else if (act === 'friends') {
+      if (G.state === 'vsover') { G = freshState(chosenGun); paintFloor(); }
+      if (G.state !== 'title') return;
+      boardFrom = 'title'; FR.note = ''; showOverlay('friends');
+    }
+    else if (act === 'vsready') { if (FR.lobby) vsToggleReady(); else if (G.vs && G.state === 'shop') vsSetReady(); }
+    else if (act === 'vsleave') vsLeaveLobby();
+    else if (act === 'vskeep') { if (G.vs && G.state === 'vsdecide') vsDecide(true); }
+    else if (act === 'vsend') { if (G.vs && (G.state === 'vsdecide' || G.state === 'shop')) vsDecide(false); }
+    else if (act === 'vsclose') { if (G.vs && G.state === 'playing') ui.overlay.hidden = true; }
+    else if (act === 'vsff') { if (G.vs && !G.vs.over) vsEnd('ff-me', true); }
+    else if (act === 'vsrematch') { if (G.vs) { const code = G.vs.code; G = freshState(chosenGun); paintFloor(); frChallenge(code); } }
     else if (act === 'transfer') { if (G.state !== 'title') return; boardFrom = 'title'; showOverlay('transfer'); }
     else if (act === 'mkcode') {
       const out = $('tfOut'), note = $('tfNote');
@@ -2761,7 +3468,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       <div class="tabs" role="tablist">${tabs}</div>
       <p class="note">${tab.hint} Buying doesn't lower your score.</p>
       <div class="cards">${tab.html()}</div>
-      <div class="actions"><button type="button" class="cta" data-act="next">Start wave ${G.wave + 1}</button></div>
+      ${G.vs ? `<div class="actions">
+          <button type="button" class="cta" data-act="vsready">${G.vs.ready ? 'Not ready' : `Ready for wave ${G.wave + 1}`}</button>
+          ${G.endless ? '<button type="button" class="ghost" data-act="vsend">End match</button>' : ''}
+        </div>
+        <p class="note" id="vsWait"></p>`
+        : `<div class="actions"><button type="button" class="cta" data-act="next">Start wave ${G.wave + 1}</button></div>`}
     </div>`;
   }
   function buy(id) {
@@ -2785,9 +3497,17 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function openShop() { saveMastery(); G.state = 'shop'; G.shots = []; mouse.down = false; saveRun(); showOverlay('shop'); }
   function closeShop() { if (G.state !== 'shop') return; G.state = 'playing'; G.prep = false; ui.overlay.hidden = true; startWave(G.wave + 1); }
 
-  function pause() { if (G.state !== 'playing') return; saveMastery(); G.state = 'paused'; saveRun(); mouse.down = false; showOverlay('paused'); }
+  function pause() { if (G.state !== 'playing' || G.vs) return; saveMastery(); G.state = 'paused'; saveRun(); mouse.down = false; showOverlay('paused'); }
   function resume() { if (G.state !== 'paused') return; G.state = 'playing'; ui.overlay.hidden = true; }
-  function togglePause() { if (G.state === 'playing') pause(); else if (G.state === 'paused') resume(); }
+  function togglePause() {
+    // versus never pauses; the button opens the match menu over the live game instead
+    if (G.vs) {
+      if (G.state !== 'playing' || G.vs.over) return;
+      if (ui.overlay.hidden) { mouse.down = false; showOverlay('vsmenu'); } else ui.overlay.hidden = true;
+      return;
+    }
+    if (G.state === 'playing') pause(); else if (G.state === 'paused') resume();
+  }
   function win() {
     G.state = 'won';
     mouse.down = false;
@@ -2805,7 +3525,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   // ---------- loop ----------
   let last = performance.now(), acc = 0;
-  function frame(now) {
+  function step(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     if (G.state === 'playing') {
@@ -2815,15 +3535,22 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       acc = 0;
       if (G.state === 'title') updateAim();
     }
+    vsTick(dt);
+  }
+  function frame(now) {
+    step(now);
     render(now);
     syncHud();
     requestAnimationFrame(frame);
   }
+  // a hidden tab gets no animation frames, but a versus match has to keep running for the other player
+  setInterval(() => { if (G.vs && !G.vs.over && document.hidden) step(performance.now()); }, 100);
 
   const hot = window.claude && window.claude.hot;
   if (hot && typeof hot.snapshot === 'function') hot.snapshot(() => JSON.parse(JSON.stringify(G)));
   // fills in anything an older saved state is missing, and never resumes straight into action
   function normalize(d) {
+    if (d.vs) return freshState(chosenGun);
     if (!d.up) { d.up = { dmg: 0, rate: 0, mag: 0, reload: 0, hp: 0, speed: 0 }; d.spent = 0; d.player.maxHp = 100; }
     if (!d.shots) d.shots = [];
     if (!d.gun) d.gun = 'carbine';
@@ -2843,6 +3570,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     frStart();
     requestAnimationFrame(frame);
   }
+  // test hook, only with ?debug in the address
+  if (/[?&]debug\b/.test(location.search)) window.__nops = {
+    G: () => G, FR,
+    shootAt(x, y) { const p = G.player; p.melee = false; p.a = Math.atan2(y - p.y, x - p.x); p.reload = 0; if (p.mag <= 0) p.mag = 5; shoot(); },
+    clearWave() { G.queue = []; G.enemies.forEach(e => { if (!e.dead) { e.lastBy = 'me'; kill(e); } }); }
+  };
   if (hot && typeof hot.ready === 'function') hot.ready(start);
   else start(hot && hot.data ? hot.data : {});
 })();
