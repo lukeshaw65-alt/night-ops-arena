@@ -1151,9 +1151,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   // keeps the 10 best runs of each difficulty
   function trimBoard(list) {
-    const keep = d => list.filter(r => (r.diff || 'normal') === d).sort((a, c) => c.score - a.score).slice(0, 10);
-    return keep('normal').concat(keep('arcane'), keep('coop'));
+    const keep = d => list.filter(r => boardKey(r) === d).sort((a, c) => c.score - a.score).slice(0, 10);
+    return keep('normal').concat(keep('arcane'), keep('coop'), keep('versus'));
   }
+  // which leaderboard a run belongs on: versus matches get their own, whatever difficulty they were played on
+  function boardKey(r) { return r.vs ? 'versus' : r.diff || 'normal'; }
   // conns: open links by friend code; outgoing: requests we sent; pending: requests we received
   const FR = { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: '', timer: 0, view: false };
   const saveFriends = () => jset('nightops-friends', friends);
@@ -2211,19 +2213,19 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // your best run of each difficulty on this device, sent to the global boards (on load and after an import);
   // postToBoard only replaces a row with a better score, so resending is harmless
   function postLocalBests() {
-    for (const df of ['normal', 'arcane', 'coop']) {
-      let top = localBoard().filter(r => (r.diff || 'normal') === df).sort((a, c) => c.score - a.score)[0];
-      // a best score kept without its run row (from older versions) still counts
-      if (bestFor(df) > (top ? top.score : 0)) top = { score: bestFor(df), wave: df === 'arcane' ? bestWaveA : df === 'coop' ? bestWaveC : bestWave,
+    for (const df of ['normal', 'arcane', 'coop', 'versus']) {
+      let top = localBoard().filter(r => boardKey(r) === df).sort((a, c) => c.score - a.score)[0];
+      // a best score kept without its run row (from older versions) still counts; versus has no separate best to fall back on
+      if (df !== 'versus' && bestFor(df) > (top ? top.score : 0)) top = { score: bestFor(df), wave: df === 'arcane' ? bestWaveA : df === 'coop' ? bestWaveC : bestWave,
         gun: chosenGun, melee: chosenMelee, endless: false, vs: false };
-      if (top) postToBoard(Object.assign({}, top, { diff: df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
+      if (top) postToBoard(Object.assign({}, top, { diff: df === 'versus' ? top.diff || 'normal' : df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
     }
   }
-  const boardCol = diff => diff === 'arcane' ? 'scores_arcane' : diff === 'coop' ? 'scores_coop' : 'scores';
+  const boardCol = key => key === 'arcane' ? 'scores_arcane' : key === 'coop' ? 'scores_coop' : key === 'versus' ? 'scores_vs' : 'scores';
   async function postToBoard(run) {
     if (!lbDb || !lbMe || !run) return;
     try {
-      const ref = lbDb.doc(boardCol(run.diff) + '/' + lbMe), cur = await ref.get();
+      const ref = lbDb.doc(boardCol(boardKey(run)) + '/' + lbMe), cur = await ref.get();
       if (cur.exists && (cur.data().score || 0) >= run.score) return;
       // the name rides along for boards with no claude.ai profiles to look it up from
       await ref.set(Object.assign({}, run, { name: me.name || '' }));
@@ -4742,7 +4744,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function boardHtml(rows, local) {
     if (!rows.length) return `<p class="note">${local ? 'No runs finished on this device yet.' : 'No scores yet. Finish a run to post the first one.'}</p>`;
     const body = rows.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="n">${i + 1}</td>
-      <td class="who">${esc(local ? new Date(r.at).toLocaleDateString() : r.name)} ${lvBadge(lvOf(r.lv, r.prank))}${r.diff === 'coop' ? ` · ${clamp(num(r.n, 4), 2, 4)} players${r.cd === 'arcane' ? ' · Arcane' : ''}` : ''}${r.vs ? ' · Versus' : r.endless ? ' · Endless' : ''}</td>
+      <td class="who">${esc(local ? new Date(r.at).toLocaleDateString() : r.name)} ${lvBadge(lvOf(r.lv, r.prank))}${r.diff === 'coop' ? ` · ${clamp(num(r.n, 4), 2, 4)} players${r.cd === 'arcane' ? ' · Arcane' : ''}` : ''}${r.vs ? ` · Versus${r.diff === 'arcane' ? ' · Arcane' : ''}` : r.endless ? ' · Endless' : ''}</td>
       <td>${esc((GUN[r.gun] || GUNS[0]).name)}</td><td class="n">${r.wave}</td><td class="n">${Number(r.score).toLocaleString()}</td></tr>`).join('');
     return `<div class="boardwrap"><table class="board"><thead><tr><th class="n">#</th><th>${local ? 'Date' : 'Player'}</th><th>Gun</th><th class="n">Wave</th><th class="n">Score</th></tr></thead>
       <tbody>${body}</tbody></table></div>`;
@@ -4757,9 +4759,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   async function fillBoard() {
     const el = $('boardBody');
     if (!el) return;
-    if (boardTab === 'local') { el.innerHTML = boardHtml(localBoard().filter(r => (r.diff || 'normal') === boardDiff), true); return; }
+    if (boardTab === 'local') { el.innerHTML = boardHtml(localBoard().filter(r => boardKey(r) === boardDiff), true); return; }
     if (boardTab === 'friends') {
-      el.innerHTML = Object.keys(friends).length ? boardHtml(friendRows(boardDiff), false)
+      el.innerHTML = boardDiff === 'versus' ? '<p class="note">Friends don’t share versus scores. Check the Global tab.</p>'
+        : Object.keys(friends).length ? boardHtml(friendRows(boardDiff), false)
         : '<p class="note">No friends yet. Add some from the Friends screen on the main menu.</p>';
       return;
     }
@@ -5210,6 +5213,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <button type="button" class="chip-b" data-act="bdiff" data-d="normal" aria-pressed="${boardDiff === 'normal'}">Normal</button>
           <button type="button" class="chip-b" data-act="bdiff" data-d="arcane" aria-pressed="${boardDiff === 'arcane'}">Arcane</button>
           <button type="button" class="chip-b" data-act="bdiff" data-d="coop" aria-pressed="${boardDiff === 'coop'}">Co-op</button>
+          ${window.claude ? '' : `<button type="button" class="chip-b" data-act="bdiff" data-d="versus" aria-pressed="${boardDiff === 'versus'}">Versus</button>`}
         </div>`}
         <div class="tabs" role="tablist">
           <button type="button" class="tab" role="tab" data-act="btab" data-tab="global" aria-selected="${boardTab === 'global'}">Global</button>
@@ -5429,7 +5433,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     else if (act === 'back') showOverlay(boardFrom);
     else if (act === 'btab') { boardTab = b.dataset.tab; showOverlay('board'); }
-    else if (act === 'bdiff') { boardDiff = ['arcane', 'coop'].includes(b.dataset.d) ? b.dataset.d : 'normal'; showOverlay('board'); }
+    else if (act === 'bdiff') { boardDiff = ['arcane', 'coop', 'versus'].includes(b.dataset.d) ? b.dataset.d : 'normal'; showOverlay('board'); }
     else if (act === 'coop') {
       if (G.state === 'vsover') { G = freshState(chosenGun); paintFloor(); }
       if (G.state === 'title') coOpen();
