@@ -1159,6 +1159,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // which leaderboard a run belongs on: versus matches get their own, whatever difficulty they were played on
   function boardKey(r) { return r.vs ? 'versus' : r.diff || 'normal'; }
   // conns: open links by friend code; outgoing: requests we sent; pending: requests we received
+  // friends can only link up from a real web copy (GitHub Pages, itch.io), not inside claude.ai or from a file
+  const FR_HOSTED = !window.claude && /^https?:$/.test(location.protocol);
   const FR = { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: '', timer: 0, view: false, trying: {} };
   // closing or reloading the game hangs up properly, so friends see you leave and your code is free again straight away
   addEventListener('pagehide', () => { try { if (FR.peer) FR.peer.destroy(); } catch (e) {} });
@@ -1294,12 +1296,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       FR.failed = why; clearTimeout(FR.timer);
       try { if (FR.peer) FR.peer.destroy(); } catch (e) {}
       FR.peer = null; frRefresh();
+      // on a hosted copy a failure is usually a hiccup (or the last tab's code not freed yet), so keep trying, backing off to 15s
+      if (FR_HOSTED) {
+        FR.backoff = Math.min(15000, (FR.backoff || 1500) * 2);
+        clearTimeout(FR.restart);
+        FR.restart = setTimeout(() => { FR.failed = ''; frStart(); }, FR.backoff);
+      }
     };
     FR.timer = setTimeout(() => { if (!FR.ready) fail('hosted'); }, 10000);
     const go = () => {
       try { FR.peer = new window.Peer(FR_PREFIX + me.code, { debug: 0 }); } catch (e) { return fail('hosted'); }
       FR.peer.on('open', () => {
-        FR.ready = true; clearTimeout(FR.timer); Object.keys(friends).forEach(frConnect); frRefresh();
+        FR.ready = true; FR.backoff = 0; clearTimeout(FR.timer); Object.keys(friends).forEach(frConnect); frRefresh();
         // friends who open the game later, or whose link dropped, get picked up again
         // quick retries first, then a steady check
         const again = () => { if (FR.ready && FR.peer && !FR.peer.destroyed) Object.keys(friends).forEach(frConnect); };
@@ -1449,7 +1457,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (!isOnline(code)) {
       // not linked yet: try to reach them, and send the challenge the moment the link opens
       const nm = (friends[code] && friends[code].name) || 'They';
-      if (FR.failed || !FR.ready) { FR.note = FR.failed ? 'Challenges only work in the GitHub version of the game.' : 'Still connecting. Try again in a moment.'; frRefresh(); return; }
+      if (FR.failed || !FR.ready) { FR.note = FR.failed && !FR_HOSTED ? 'Challenges only work in the GitHub version of the game.' : 'Still connecting. Try again in a moment.'; frRefresh(); return; }
       FR.chWant = code; clearTimeout(FR.chTimer);
       FR.chTimer = setTimeout(() => {
         if (FR.chWant !== code) return;
@@ -4821,7 +4829,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function frBodyRender() {
     const el = $('frBody');
     if (!el) return;
-    const status = FR.failed === 'tab' ? 'Friends are already open in another tab of this game. Use that tab.'
+    const status = FR.failed === 'tab' ? `Friends are already open in another tab of this game. Use that tab${FR_HOSTED ? ', or close it and this one takes over in a few seconds' : ''}.`
+      : FR.failed && FR_HOSTED ? 'Couldn’t reach the friends service. Trying again…'
       : FR.failed ? 'Friends can’t connect here. They work in the hosted version of the game (itch.io or GitHub Pages).'
       : FR.ready ? 'Connected. Friends who have the game open right now show a green dot.' : 'Connecting…';
     const reqs = Object.keys(FR.pending).map(c => `<li><div class="info"><b>${esc(FR.pending[c])}</b><span class="note">${fmtCode(c)}</span></div>
@@ -5079,7 +5088,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         ${rows ? `<ul class="shop-list frlist">${rows}</ul>` : `<p class="note">Waiting for ${hostName} to let you in…</p>`}
         ${host ? `<span class="label">Invite friends who are online${free > 0 ? '' : ' · squad full'}</span>
           ${inv ? `<ul class="shop-list frlist">${inv}</ul>`
-            : `<p class="note">${FR.failed ? 'Friends can’t connect here. Co-op works in the hosted version of the game (GitHub Pages).'
+            : `<p class="note">${FR.failed && FR_HOSTED ? 'Couldn’t reach the friends service. Trying again…'
+              : FR.failed ? 'Friends can’t connect here. Co-op works in the hosted version of the game (GitHub Pages).'
               : 'None of your friends are online right now. They need the game open to be invited.'}</p>`}` : ''}
         <div class="frrow">
           <span class="label">Difficulty${host ? '' : ` · ${hostName} picks`}</span>
