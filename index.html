@@ -269,6 +269,49 @@ details summary { cursor: pointer; }
   background: transparent; color: var(--text); border: 1px solid var(--line); padding: 12px 18px; cursor: pointer;
 }
 button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+/* main menu: hero header, deploy panel beside the loadout, tile nav underneath */
+.brief.menu { width: min(100%, 1000px); gap: 20px; }
+.mhero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.mhero .tag { margin: 6px 0 0; color: var(--muted); font-size: 15px; max-width: 46ch; }
+.brief.menu h1 { font-size: clamp(44px, 9vw, 84px); text-shadow: 0 0 28px rgba(242, 177, 52, 0.18); }
+.brief.menu h1 span { color: var(--amber); }
+.rankchip { min-width: 220px; flex: 0 1 300px; display: flex; flex-direction: column; gap: 6px; }
+.mgrid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; align-items: start; }
+.pane { border: 1px solid var(--line); background: rgba(230, 225, 211, 0.03); padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pane > h2 { margin: 0; font: 600 13px var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); display: flex; align-items: center; gap: 8px; }
+.pane > h2::before { content: ""; width: 8px; height: 8px; background: var(--amber); transform: rotate(45deg); }
+.play { display: flex; flex-direction: column; gap: 8px; }
+.play .cta { width: 100%; padding: 16px 20px; font-size: 18px; }
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode {
+  font: inherit; color: var(--text); background: rgba(230, 225, 211, 0.04); border: 1px solid var(--line); cursor: pointer;
+  padding: 12px; text-align: left; display: flex; flex-direction: column; gap: 3px; min-width: 0;
+}
+.mode b { font: 700 15px var(--display); letter-spacing: 0.1em; text-transform: uppercase; }
+.mode span { color: var(--muted); font-size: 13px; line-height: 1.35; }
+.mode:hover { border-color: var(--amber); background: rgba(242, 177, 52, 0.08); }
+.mode.wide { grid-column: 1 / -1; }
+.mnav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.navt {
+  position: relative; font: 600 13px var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--text);
+  background: rgba(230, 225, 211, 0.04); border: 1px solid var(--line); padding: 14px 10px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; min-width: 0;
+}
+.navt svg { width: 26px; height: 26px; color: var(--amber); }
+.navt small { font: 11px var(--mono); letter-spacing: 0.08em; color: var(--muted); text-transform: none; }
+.navt:hover { border-color: var(--amber); background: rgba(242, 177, 52, 0.08); }
+.navt .badge { position: absolute; top: 6px; right: 6px; background: var(--hp); color: #fff; font: 11px var(--mono); padding: 1px 6px; border-radius: 9px; }
+.fold summary { font: 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); padding: 4px 0; }
+.fold summary:hover { color: var(--text); }
+.fold[open] summary { margin-bottom: 6px; }
+.fold.box { border-top: 1px solid var(--line); padding-top: 12px; }
+.fold.box > summary { font-size: 12px; color: var(--text); }
+.fold.box[open] > *:not(summary) { margin-bottom: 12px; }
+@media (max-width: 760px) {
+  .mgrid { grid-template-columns: 1fr; }
+  .mnav { grid-template-columns: repeat(2, 1fr); }
+  .rankchip { flex-basis: 100%; }
+}
 @media (max-width: 520px) {
   .wave b { font-size: 22px; }
   .ammo .mag { font-size: 32px; }
@@ -4553,7 +4596,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     </dl>
     <p class="note touch-only">Drag on the left half of the screen to move. Drag on the right half to aim, and push further to fire. Tap Swap to change between gun and melee.</p>`;
 
-  function loadoutHtml() {
+  // collapsible bits of the main menu remember whether they're open across redraws
+  const menuFold = {};
+  const foldHtml = (key, label, inner) => key
+    ? `<details class="fold" data-fold="${key}"${menuFold[key] ? ' open' : ''}><summary>${label}</summary>${inner}</details>` : inner;
+  ui.overlay.addEventListener('toggle', e => { const k = e.target.dataset && e.target.dataset.fold; if (k) menuFold[k] = e.target.open; }, true);
+  function loadoutHtml(fold) {
     const bar = v => `<span class="sbar">${Array.from({ length: 5 }, (_, i) => `<i class="${i < v ? 'on' : ''}"></i>`).join('')}</span>`;
     const g = GUN[chosenGun] || GUNS[0], s = g.stats;
     const badge = id => { const r = rankOf(id); return r ? `<span class="rk" style="color:${RANKS[r].color}">${RANKS[r].name}</span>` : ''; };
@@ -4573,15 +4621,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         <div><dt>Magazine</dt><dd>${bar(s.mag)}</dd></div>
         <div><dt>Mobility</dt><dd>${bar(s.mobility)}</dd></div>
       </dl>
-      ${masteryHtml(g.id, gunPerks(g))}
+      ${masteryHtml(g.id, gunPerks(g), undefined, 'Mastery', fold && 'gunranks')}
       <span class="label">Choose your melee weapon</span>
       <div class="guns">${mcards}</div>
       <p class="note">${mm.note} Swap to it any time, and you switch to it automatically when your ammo runs out. Damage upgrades boost it too.</p>
-      ${masteryHtml(mm.id, meleePerks(mm))}
+      ${masteryHtml(mm.id, meleePerks(mm), undefined, 'Mastery', fold && 'meleeranks')}
     </div>`;
   }
   // player rank: a bar to the next rank, the perks from Bronze to Mythic, then Radiant 1–50
-  function levelHtml() {
+  function levelHtml(fold) {
     const xp = Math.floor(xpOf(PLAYER_KEY)), n = pLevel(), top = n >= MAX_LV;
     const pct = top ? 100 : Math.round(100 * (xp - LV_XP[n]) / (LV_XP[n + 1] - LV_XP[n]));
     const list = PLAYER_PERKS.map((p, i) => `<li class="${n >= i + 2 ? 'on' : ''}"><span style="color:${lvColor(i + 2)}">${lvName(i + 2)}</span>${p}</li>`).join('')
@@ -4591,17 +4639,17 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     return `<div class="mastery">
       <div class="mhead"><span class="label">Player rank · ${lvBadge(n)}</span><span class="label">${top ? `${xp} XP · max rank` : `${xp} / ${LV_XP[n + 1]} XP`}</span></div>
       <div class="rbar"><i style="width:${pct}%"></i></div>
-      <ul class="ranks">${list}</ul>
+      ${foldHtml(fold && 'playerranks', 'Rank perks', `<ul class="ranks">${list}</ul>`)}
     </div>`;
   }
-  function masteryHtml(id, perks, ranks = ranksFor(id), title = 'Mastery') {
+  function masteryHtml(id, perks, ranks = ranksFor(id), title = 'Mastery', fold) {
     const xp = Math.floor(xpOf(id)), r = rankIn(ranks, xp), next = ranks[r + 1];
     const pct = next ? Math.round(100 * (xp - ranks[r].xp) / (next.xp - ranks[r].xp)) : 100;
     const list = perks.map((p, i) => `<li class="${i + 1 <= r ? 'on' : ''}"><span style="color:${ranks[i + 1].color}">${ranks[i + 1].name}</span>${p}</li>`).join('');
     return `<div class="mastery">
       <div class="mhead"><span class="label">${title} · ${ranks[r].name}</span><span class="label">${next ? `${xp} / ${next.xp} XP` : `${xp} XP · max rank`}</span></div>
       <div class="rbar"><i style="width:${pct}%"></i></div>
-      <ul class="ranks">${list}</ul>
+      ${foldHtml(fold, 'Rank perks', `<ul class="ranks">${list}</ul>`)}
     </div>`;
   }
   function xpLine() {
@@ -5110,41 +5158,61 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       return;
     }
     if (kind === 'title') {
-      o.innerHTML = `<div class="brief">
-        <p class="eyebrow">Mission briefing · Sector 7</p>
-        <h1>Night Ops</h1>
-        <p class="lede">Hold landing zone LZ-7 for 30 waves. Hostiles come over every wall of the yard, and some of them shoot back. Every third wave is a one-on-one fight with a boss hog, and the biggest one waits at wave 30. Bosses hit straight through armor plates. Spend your points on upgrades between waves. In Endless the waves never stop, and the bosses come back stronger every lap.</p>
-        ${KEYS_HTML}
-        ${levelHtml()}
-        ${loadoutHtml()}
-        <div class="frrow">
-          <span class="label">Difficulty</span>
-          <div class="chiprow">
-            <button type="button" class="chip-b" data-act="diff" data-d="normal" aria-pressed="${chosenDiff !== 'arcane' || !arcaneUnlocked()}">Normal</button>
-            <button type="button" class="chip-b" data-act="diff" data-d="arcane" aria-pressed="${chosenDiff === 'arcane' && arcaneUnlocked()}" ${arcaneUnlocked() ? '' : 'disabled'}>Arcane${arcaneUnlocked() ? '' : ' · locked'}</button>
+      const ico = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+      const pend = Object.keys(FR.pending).length, best = bestFor(chosenDiff);
+      o.innerHTML = `<div class="brief menu">
+        <header class="mhero">
+          <div>
+            <p class="eyebrow">Mission briefing · Sector 7</p>
+            <h1>Night <span>Ops</span></h1>
+            <p class="tag">Hold landing zone LZ-7 for 30 waves. Bosses every third wave.${best ? ` Best ${chosenDiff === 'arcane' ? 'Arcane ' : ''}score here: <b class="newbest">${best.toLocaleString()}</b>` : ''}</p>
           </div>
-          <p class="note">${!arcaneUnlocked() ? 'Beat wave 30 on Normal in the main game to unlock Arcane.'
-            : chosenDiff === 'arcane' ? 'Wizards and fantasy beasts. A pricier shop, rarer ammo and +25% XP. Its own leaderboard.'
-            : 'The original 30 waves of hostiles and boss hogs.'}</p>
+          <div class="rankchip">${levelHtml(true)}</div>
+        </header>
+        <div class="mgrid">
+          <section class="pane">
+            <h2>Deploy</h2>
+            <div class="frrow">
+              <span class="label">Difficulty</span>
+              <div class="chiprow">
+                <button type="button" class="chip-b" data-act="diff" data-d="normal" aria-pressed="${chosenDiff !== 'arcane' || !arcaneUnlocked()}">Normal</button>
+                <button type="button" class="chip-b" data-act="diff" data-d="arcane" aria-pressed="${chosenDiff === 'arcane' && arcaneUnlocked()}" ${arcaneUnlocked() ? '' : 'disabled'}>Arcane${arcaneUnlocked() ? '' : ' · locked'}</button>
+              </div>
+              <p class="note">${!arcaneUnlocked() ? 'Beat wave 30 on Normal in the main game to unlock Arcane.'
+                : chosenDiff === 'arcane' ? 'Wizards and fantasy beasts. A pricier shop, rarer ammo and +25% XP. Its own leaderboard.'
+                : 'The original 30 waves of hostiles and boss hogs.'}</p>
+            </div>
+            <div class="startpick">
+              <label class="label" for="startWave">Starting wave</label>
+              <div class="row"><input type="range" id="startWave" min="1" max="30" step="1" value="${startSel}"><b id="startWaveNum">${startSel}</b></div>
+              <p class="note" id="startWaveNote">${startNote(startSel)}</p>
+            </div>
+            ${saved ? `<div class="wallet"><span class="label">Saved run · wave ${saved.wave}${saved.endless ? ' · Endless' : ''} · ${(GUN[saved.gun] || GUNS[0]).name}</span><b>${saved.score.toLocaleString()}</b></div>` : ''}
+            <div class="play">
+              ${saved ? '<button type="button" class="cta" data-act="resumerun">Continue run</button>' : '<button type="button" class="cta" data-act="start">Deploy</button>'}
+              <div class="modes">
+                ${saved ? '<button type="button" class="mode wide" data-act="start"><b>New run</b><span>Replaces your saved run</span></button>' : ''}
+                <button type="button" class="mode" data-act="endless"><b>Endless</b><span>Waves never stop</span></button>
+                <button type="button" class="mode" data-act="coop"><b>Co-op</b><span>2–4 players</span></button>
+              </div>
+            </div>
+          </section>
+          <section class="pane">
+            <h2>Loadout</h2>
+            ${loadoutHtml(true)}
+          </section>
         </div>
-        <div class="startpick">
-          <label class="label" for="startWave">Starting wave</label>
-          <div class="row"><input type="range" id="startWave" min="1" max="30" step="1" value="${startSel}"><b id="startWaveNum">${startSel}</b></div>
-          <p class="note" id="startWaveNote">${startNote(startSel)}</p>
-        </div>
-        ${saved ? `<div class="wallet"><span class="label">Saved run · wave ${saved.wave}${saved.endless ? ' · Endless' : ''} · ${(GUN[saved.gun] || GUNS[0]).name}</span><b>${saved.score.toLocaleString()}</b></div>` : ''}
-        <div class="actions">
-          ${saved ? '<button type="button" class="cta" data-act="resumerun">Continue run</button>' : ''}
-          <button type="button" class="${saved ? 'ghost' : 'cta'}" data-act="start">${saved ? 'New run' : 'Deploy'}</button>
-          <button type="button" class="ghost" data-act="endless">Endless</button>
-          <button type="button" class="ghost" data-act="coop">Co-op</button>
-          <button type="button" class="ghost" data-act="board">Leaderboard</button>
-          <button type="button" class="ghost" data-act="profile">Profile · ${achPoints().toLocaleString()} pts</button>
-          <button type="button" class="ghost" data-act="friends">Friends${Object.keys(FR.pending).length ? ` (${Object.keys(FR.pending).length})` : ''}</button>
-          <button type="button" class="ghost" data-act="transfer">Transfer progress</button>
-        </div>
-        ${saved ? '<p class="note">Starting a new run replaces your saved one.</p>' : ''}
-        ${bestFor(chosenDiff) ? `<p class="note">Best ${chosenDiff === 'arcane' ? 'Arcane ' : ''}score on this device: ${bestFor(chosenDiff).toLocaleString()}</p>` : ''}
+        <nav class="mnav" aria-label="More">
+          <button type="button" class="navt" data-act="board">${ico('<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>')}Leaderboard</button>
+          <button type="button" class="navt" data-act="profile">${ico('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>')}Profile<small>${achPoints().toLocaleString()} pts</small></button>
+          <button type="button" class="navt" data-act="friends">${ico('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>')}Friends${pend ? `<span class="badge">${pend}</span>` : ''}</button>
+          <button type="button" class="navt" data-act="transfer">${ico('<path d="M4 8h13l-3-3M20 16H7l3 3"/>')}Transfer<small>Move progress</small></button>
+        </nav>
+        <details class="fold box" data-fold="howto"${menuFold.howto ? ' open' : ''}>
+          <summary>How to play · controls</summary>
+          <p class="lede">Hold landing zone LZ-7 for 30 waves. Hostiles come over every wall of the yard, and some of them shoot back. Every third wave is a one-on-one fight with a boss hog, and the biggest one waits at wave 30. Bosses hit straight through armor plates. Spend your points on upgrades between waves. In Endless the waves never stop, and the bosses come back stronger every lap.</p>
+          ${KEYS_HTML}
+        </details>
       </div>`;
     } else if (kind === 'over') {
       const isBest = G.score > 0 && G.score >= bestFor(G.diff);
