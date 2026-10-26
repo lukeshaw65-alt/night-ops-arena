@@ -1159,7 +1159,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // which leaderboard a run belongs on: versus matches get their own, whatever difficulty they were played on
   function boardKey(r) { return r.vs ? 'versus' : r.diff || 'normal'; }
   // conns: open links by friend code; outgoing: requests we sent; pending: requests we received
-  const FR = { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: '', timer: 0, view: false };
+  const FR = { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: '', timer: 0, view: false, trying: {} };
+  // closing or reloading the game hangs up properly, so friends see you leave and your code is free again straight away
+  addEventListener('pagehide', () => { try { if (FR.peer) FR.peer.destroy(); } catch (e) {} });
   const saveFriends = () => jset('nightops-friends', friends);
   const myStats = () => ({ name: me.name || 'Player', prank: pRank(), lv: pLevel(), best, wave: bestWave, bestA, waveA: bestWaveA, bestC, waveC: bestWaveC,
     arc: arcaneUnlocked() ? 1 : 0, gun: chosenGun, prof: myProf() });
@@ -1204,9 +1206,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     c.on('close', () => { if (FR.conns[code] === c) { delete FR.conns[code]; vsLost(code); frRefresh(); } });
     c.on('error', () => {});
   }
+  // an attempt that hasn't opened within 6s is dropped and tried again, rather than left hanging
   function frConnect(code) {
     if (!FR.ready || isOnline(code)) return;
-    try { frWire(FR.peer.connect(FR_PREFIX + code, { reliable: true })); } catch (e) {}
+    const t = FR.trying[code];
+    if (t && t.at > performance.now() - 6000) return;
+    if (t) { try { t.c.close(); } catch (e) {} }
+    try {
+      const c = FR.peer.connect(FR_PREFIX + code, { reliable: true });
+      FR.trying[code] = { c, at: performance.now() };
+      c.on('open', () => { delete FR.trying[code]; });
+      frWire(c);
+    } catch (e) {}
   }
   // everything a friend sends is untrusted: clamp numbers and strip names before keeping them
   function frStats(code, d) {
@@ -1290,7 +1301,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       FR.peer.on('open', () => {
         FR.ready = true; clearTimeout(FR.timer); Object.keys(friends).forEach(frConnect); frRefresh();
         // friends who open the game later, or whose link dropped, get picked up again
-        if (!FR.retry) FR.retry = setInterval(() => { if (FR.ready && FR.peer && !FR.peer.destroyed) Object.keys(friends).forEach(frConnect); }, 20000);
+        // quick retries first, then a steady check
+        const again = () => { if (FR.ready && FR.peer && !FR.peer.destroyed) Object.keys(friends).forEach(frConnect); };
+        if (!FR.retry) { [2000, 5000, 9000].forEach(ms => setTimeout(again, ms)); FR.retry = setInterval(again, 10000); }
       });
       FR.peer.on('connection', frWire);
       FR.peer.on('disconnected', () => { if (FR.peer && !FR.peer.destroyed) { try { FR.peer.reconnect(); } catch (e) {} } });
@@ -1329,7 +1342,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       jset('nightops-me', me); saveFriends();
       try { if (FR.peer) FR.peer.destroy(); } catch (e) {}
       clearTimeout(FR.timer);
-      Object.assign(FR, { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, note: 'Backup restored.' });
+      Object.assign(FR, { peer: null, ready: false, failed: '', conns: {}, outgoing: {}, pending: {}, trying: {}, note: 'Backup restored.' });
       showOverlay('friends');
       frStart();
     } catch (e) { FR.note = 'That backup code didn’t work. Check you copied all of it.'; frRefresh(); }
