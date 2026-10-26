@@ -756,8 +756,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     easy: { name: 'Easy', pts: 10, color: '#a7ada3' },
     medium: { name: 'Medium', pts: 25, color: '#5ad16b' },
     hard: { name: 'Hard', pts: 50, color: '#6bb8ff' },
+    veryhard: { name: 'Very hard', pts: 75, color: '#7f8cff' },
     extreme: { name: 'Extreme', pts: 100, color: '#b46bff' },
-    legendary: { name: 'Legendary', pts: 250, color: '#ffd36b' }
+    insane: { name: 'Insane', pts: 150, color: '#ff6b4a' },
+    legendary: { name: 'Legendary', pts: 250, color: '#ffd36b' },
+    // kept empty for now: the hardest achievements still to come go here
+    mythic: { name: 'Mythic', pts: 500, color: '#ff7ad9' }
   };
   let STATS = {};
   try { STATS = JSON.parse(localStorage.getItem('nightops-stats') || '{}') || {}; } catch (e) { STATS = {}; }
@@ -769,44 +773,44 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const beastsBeaten = () => BEASTS.filter((b, i) => STATS.beasts[i] > 0).length;
   const ACHS = [
     { id: 'first_blood', cat: 'Combat', name: 'First Blood', desc: 'Kill your first hostile', tier: 'easy', prog: () => [st('kills'), 1] },
-    { id: 'crits', cat: 'Combat', name: 'Critical Thinking', desc: 'Land 100 critical hits', tier: 'medium', prog: () => [st('crits'), 100] },
+    { id: 'crits', cat: 'Combat', name: 'Critical Thinking', desc: 'Land 100 critical hits', tier: 'easy', prog: () => [st('crits'), 100] },
     { id: 'ext1', cat: 'Combat', name: 'Exterminator I', desc: 'Kill 1,000 hostiles', tier: 'medium', prog: () => [st('kills'), 1000] },
     { id: 'ext2', cat: 'Combat', name: 'Exterminator II', desc: 'Kill 5,000 hostiles', tier: 'hard', prog: () => [st('kills'), 5000], reward: { tracer: 'crimson' } },
     { id: 'melee500', cat: 'Combat', name: 'Up Close and Personal', desc: 'Get 500 melee kills', tier: 'hard', prog: () => [st('meleeKills'), 500], reward: { decal: 'skull' } },
-    { id: 'crowd', cat: 'Combat', name: 'Crowd Control', desc: 'Kill 10 hostiles with a single shockwave', tier: 'hard', reward: { kill: 'sparks' } },
+    { id: 'crowd', cat: 'Combat', name: 'Crowd Control', desc: 'Kill 10 hostiles with a single shockwave', tier: 'veryhard', reward: { kill: 'sparks' } },
     { id: 'untouch', cat: 'Combat', name: 'Untouchable', desc: 'Clear a wave (wave 5 or later) without taking any damage', tier: 'hard', reward: { name: 'ice' } },
-    { id: 'ext3', cat: 'Combat', name: 'Exterminator III', desc: 'Kill 25,000 hostiles', tier: 'extreme', prog: () => [st('kills'), 25000], reward: { title: 'the Exterminator', kill: 'smoke' } },
+    { id: 'ext3', cat: 'Combat', name: 'Exterminator III', desc: 'Kill 25,000 hostiles', tier: 'insane', prog: () => [st('kills'), 25000], reward: { title: 'the Exterminator', kill: 'smoke' } },
     { id: 'bacon', cat: 'Bosses', name: 'Bacon Bits', desc: 'Defeat Kunekune', tier: 'easy' },
     { id: 'shield', cat: 'Bosses', name: 'Shield Breaker', desc: 'Break a boss’s melee-only shield', tier: 'medium' },
     { id: 'swift', cat: 'Bosses', name: 'Swift Butcher', desc: 'Defeat a boss within 30 seconds of its wave starting', tier: 'hard', reward: { tracer: 'violet' } },
-    { id: 'pigslayer', cat: 'Bosses', name: 'Pig Slayer', desc: 'Defeat all 10 different bosses', tier: 'hard', prog: () => [bossesBeaten(), 10], reward: { decal: 'pig' } },
+    { id: 'pigslayer', cat: 'Bosses', name: 'Pig Slayer', desc: 'Defeat all 10 different bosses', tier: 'extreme', prog: () => [bossesBeaten(), 10], reward: { decal: 'pig' } },
     { id: 'w30', cat: 'Bosses', name: 'Pigmageddon Averted', desc: 'Survive and clear wave 30', tier: 'extreme', reward: { title: 'the Swine Slayer', name: 'rose' } },
-    { id: 'hogwild', cat: 'Bosses', name: 'Hog Wild', desc: 'Defeat a Mk II boss in Endless', tier: 'extreme', reward: { title: 'Hog Wild', kill: 'confetti' } },
+    { id: 'hogwild', cat: 'Bosses', name: 'Hog Wild', desc: 'Defeat a Mk II boss in Endless', tier: 'insane', reward: { title: 'Hog Wild', kill: 'confetti' } },
     { id: 'emperor', cat: 'Bosses', name: 'Emperor’s End', desc: 'Defeat Pigmageddon without taking any damage from it', tier: 'legendary', reward: { title: 'Swine Emperor', decal: 'crown', name: 'gold' } },
     { id: 'surv10', cat: 'Survival', name: 'Survivor I', desc: 'Reach wave 10', tier: 'easy' },
     { id: 'surv20', cat: 'Survival', name: 'Survivor II', desc: 'Reach wave 20', tier: 'medium' },
     { id: 'second', cat: 'Survival', name: 'Second Chance', desc: 'Get saved by Second wind', tier: 'medium' },
-    { id: 'end40', cat: 'Survival', name: 'Endless Night I', desc: 'Reach wave 40 in Endless', tier: 'hard', reward: { tracer: 'ice' } },
-    { id: 'end60', cat: 'Survival', name: 'Endless Night II', desc: 'Reach wave 60 in Endless', tier: 'extreme', reward: { title: 'Night Owl' } },
-    { id: 'ironwill', cat: 'Survival', name: 'Iron Will', desc: 'Clear wave 30 without buying a Med kit', tier: 'extreme', reward: { title: 'Iron Will' } },
+    { id: 'end40', cat: 'Survival', name: 'Endless Night I', desc: 'Reach wave 40 in Endless', tier: 'extreme', reward: { tracer: 'ice' } },
+    { id: 'end60', cat: 'Survival', name: 'Endless Night II', desc: 'Reach wave 60 in Endless', tier: 'insane', reward: { title: 'Night Owl' } },
+    { id: 'ironwill', cat: 'Survival', name: 'Iron Will', desc: 'Clear wave 30 without buying a Med kit', tier: 'insane', reward: { title: 'Iron Will' } },
     { id: 'end90', cat: 'Survival', name: 'Endless Night III', desc: 'Reach wave 90 in Endless on Normal', tier: 'legendary', reward: { title: 'the Undying', kill: 'ember' } },
     { id: 'spec_gold', cat: 'Mastery', name: 'Specialist', desc: 'Get any weapon to Gold mastery', tier: 'medium' },
     { id: 'spec_dia', cat: 'Mastery', name: 'Diamond Specialist', desc: 'Get any weapon to Diamond mastery', tier: 'hard', reward: { tracer: 'gold' } },
-    { id: 'arsenal', cat: 'Mastery', name: 'Arsenal', desc: 'Get every gun to Bronze mastery', tier: 'hard', prog: () => [GUNS.filter(g => rankOf(g.id) >= 1).length, GUNS.length], reward: { decal: 'star' } },
-    { id: 'legend', cat: 'Mastery', name: 'Legendary', desc: 'Reach Legend player rank', tier: 'extreme', reward: { title: 'Legend' } },
+    { id: 'arsenal', cat: 'Mastery', name: 'Arsenal', desc: 'Get every gun to Bronze mastery', tier: 'medium', prog: () => [GUNS.filter(g => rankOf(g.id) >= 1).length, GUNS.length], reward: { decal: 'star' } },
+    { id: 'legend', cat: 'Mastery', name: 'Legendary', desc: 'Reach Legend player rank', tier: 'insane', reward: { title: 'Legend' } },
     { id: 'mythic', cat: 'Mastery', name: 'Mythic', desc: 'Reach Mythic player rank', tier: 'legendary', reward: { title: 'Mythic', name: 'rainbow' } },
     { id: 'radiant', cat: 'Mastery', name: 'Radiant', desc: 'Reach Radiant 50, the top player rank', tier: 'legendary', prog: () => [Math.max(0, pLevel() - RADIANT), MAX_LV - RADIANT], reward: { title: 'the Radiant', name: 'radiant' } },
     { id: 'squad', cat: 'Versus & friends', name: 'Squad Up', desc: 'Add your first friend', tier: 'easy' },
     { id: 'rivals', cat: 'Versus & friends', name: 'Rivals', desc: 'Finish a versus match', tier: 'easy' },
     { id: 'pickpocket', cat: 'Versus & friends', name: 'Pickpocket', desc: 'Steal 1,000 or more score in a single takedown', tier: 'hard', reward: { name: 'emerald' } },
-    { id: 'champ', cat: 'Versus & friends', name: 'Champion', desc: 'Win 10 versus matches', tier: 'extreme', prog: () => [st('vsWins'), 10], reward: { title: 'Champion' } },
-    { id: 'comeback', cat: 'Versus & friends', name: 'Comeback', desc: 'Win a versus match after being behind when wave 20 started', tier: 'extreme', reward: { title: 'the Comeback Kid' } },
+    { id: 'champ', cat: 'Versus & friends', name: 'Champion', desc: 'Win 10 versus matches', tier: 'veryhard', prog: () => [st('vsWins'), 10], reward: { title: 'Champion' } },
+    { id: 'comeback', cat: 'Versus & friends', name: 'Comeback', desc: 'Win a versus match after being behind when wave 20 started', tier: 'veryhard', reward: { title: 'the Comeback Kid' } },
     { id: 'wiz100', cat: 'Arcane', name: 'Apprentice Hunter', desc: 'Kill 100 wizards', tier: 'easy', prog: () => [st('wizards'), 100] },
     { id: 'unicorn', cat: 'Arcane', name: 'Unicorn Down', desc: 'Defeat the Unicorn', tier: 'medium' },
     { id: 'wiz1000', cat: 'Arcane', name: 'Hex Breaker', desc: 'Kill 1,000 wizards', tier: 'hard', prog: () => [st('wizards'), 1000], reward: { tracer: 'arcane' } },
-    { id: 'fireproof', cat: 'Arcane', name: 'Fireproof', desc: 'Clear an Arcane wave (wave 10 or later) without standing in fire, poison or ice', tier: 'hard', reward: { name: 'frost' } },
-    { id: 'beasttamer', cat: 'Arcane', name: 'Beast Tamer', desc: 'Defeat all 10 fantasy beasts', tier: 'extreme', prog: () => [beastsBeaten(), 10], reward: { title: 'Beast Tamer', decal: 'dragon' } },
-    { id: 'dragonslayer', cat: 'Arcane', name: 'Dragonslayer', desc: 'Clear wave 30 on Arcane', tier: 'legendary', reward: { title: 'Dragonslayer', kill: 'arcane' } },
+    { id: 'fireproof', cat: 'Arcane', name: 'Fireproof', desc: 'Clear an Arcane wave (wave 10 or later) without standing in fire, poison or ice', tier: 'veryhard', reward: { name: 'frost' } },
+    { id: 'beasttamer', cat: 'Arcane', name: 'Beast Tamer', desc: 'Defeat all 10 fantasy beasts', tier: 'insane', prog: () => [beastsBeaten(), 10], reward: { title: 'Beast Tamer', decal: 'dragon' } },
+    { id: 'dragonslayer', cat: 'Arcane', name: 'Dragonslayer', desc: 'Clear wave 30 on Arcane', tier: 'insane', reward: { title: 'Dragonslayer', kill: 'arcane' } },
     { id: 'arc90', cat: 'Arcane', name: 'Endless Sorcery', desc: 'Reach wave 90 in Endless on Arcane', tier: 'legendary', reward: { title: 'the Spellbreaker' } }
   ];
   const ACH_BY = Object.fromEntries(ACHS.map(a => [a.id, a]));
@@ -1032,8 +1036,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // ---------- leaderboard: shared through the page's database when it can reach one, plus this device's top 10 ----------
   let lbDb = null, lbUser = null, lbMe = null, boardTab = 'global', boardFrom = 'title', boardDiff = 'normal';
   if (window.claude && typeof window.claude.use === 'function') {
-    window.claude.use('db').then(d => { lbDb = d; }).catch(() => {});
-    window.claude.use('user').then(async u => { lbUser = u; if (u) lbMe = await u.id(); }).catch(() => {});
+    const dbReady = window.claude.use('db').then(d => { lbDb = d; }).catch(() => {});
+    const userReady = window.claude.use('user').then(async u => { lbUser = u; if (u) lbMe = await u.id(); }).catch(() => {});
+    // re-post achievement points on load so the board follows any change to tier points
+    Promise.all([dbReady, userReady]).then(() => { if (achCount()) postPoints(); });
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const localBoard = () => { try { return JSON.parse(localStorage.getItem('nightops-board') || '[]'); } catch (e) { return []; } };
