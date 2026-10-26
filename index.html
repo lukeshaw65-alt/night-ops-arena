@@ -805,6 +805,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { id: 'pickpocket', cat: 'Versus & friends', name: 'Pickpocket', desc: 'Steal 1,000 or more score in a single takedown', tier: 'hard', reward: { name: 'emerald' } },
     { id: 'champ', cat: 'Versus & friends', name: 'Champion', desc: 'Win 10 versus matches', tier: 'veryhard', prog: () => [st('vsWins'), 10], reward: { title: 'Champion' } },
     { id: 'comeback', cat: 'Versus & friends', name: 'Comeback', desc: 'Win a versus match after being behind when wave 20 started', tier: 'veryhard', reward: { title: 'the Comeback Kid' } },
+    { id: 'coop_run', cat: 'Co-op', name: 'Fireteam', desc: 'Finish a co-op run', tier: 'easy' },
+    { id: 'coop_full', cat: 'Co-op', name: 'Full House', desc: 'Start a co-op run with a full squad of 4', tier: 'medium' },
+    { id: 'coop_last', cat: 'Co-op', name: 'Last One Standing', desc: 'Clear a co-op wave (wave 10 or later) as the only one in your squad still up', tier: 'hard', reward: { name: 'jade' } },
+    { id: 'coop_w30', cat: 'Co-op', name: 'Brothers in Arms', desc: 'Clear wave 30 in co-op', tier: 'veryhard', reward: { title: 'Squad Leader', tracer: 'jade' } },
+    { id: 'coop_end60', cat: 'Co-op', name: 'The Long Watch', desc: 'Reach wave 60 in co-op Endless', tier: 'extreme', reward: { title: 'the Watchman' } },
     { id: 'wiz100', cat: 'Arcane', name: 'Apprentice Hunter', desc: 'Kill 100 wizards', tier: 'easy', prog: () => [st('wizards'), 100] },
     { id: 'unicorn', cat: 'Arcane', name: 'Unicorn Down', desc: 'Defeat the Unicorn', tier: 'medium' },
     { id: 'wiz1000', cat: 'Arcane', name: 'Hex Breaker', desc: 'Kill 1,000 wizards', tier: 'hard', prog: () => [st('wizards'), 1000], reward: { tracer: 'arcane' } },
@@ -823,17 +828,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   // cosmetics: the first of each list is always yours; the rest come from achievements
   const COS = {
-    tracer: { amber: 'Amber', crimson: 'Crimson', violet: 'Violet', ice: 'Ice', gold: 'Gold', arcane: 'Arcane' },
-    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', frost: 'Frost', rainbow: 'Rainbow', radiant: 'Radiant' },
+    tracer: { amber: 'Amber', crimson: 'Crimson', violet: 'Violet', ice: 'Ice', gold: 'Gold', arcane: 'Arcane', jade: 'Jade' },
+    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', frost: 'Frost', jade: 'Jade', rainbow: 'Rainbow', radiant: 'Radiant' },
     decal: { none: 'None', skull: 'Skull', pig: 'Pig', star: 'Star', crown: 'Crown', dragon: 'Dragon' },
     kill: { blood: 'Default', sparks: 'Sparks', smoke: 'Smoke', confetti: 'Confetti', ember: 'Embers', arcane: 'Arcane' }
   };
   const COS_LABEL = { title: 'Title', name: 'Name colour', tracer: 'Bullet tracers', decal: 'Helmet decal', kill: 'Kill effect' };
   const TRACER_COL = {
     amber: ['rgba(242,177,52,0.35)', '#ffe2a0'], crimson: ['rgba(230,60,60,0.45)', '#ffb0a8'], violet: ['rgba(170,110,255,0.45)', '#e2d0ff'],
-    ice: ['rgba(127,232,255,0.4)', '#d8fbff'], gold: ['rgba(255,210,80,0.5)', '#fff1b8'], arcane: ['rgba(140,90,255,0.5)', '#e0d2ff']
+    ice: ['rgba(127,232,255,0.4)', '#d8fbff'], gold: ['rgba(255,210,80,0.5)', '#fff1b8'], arcane: ['rgba(140,90,255,0.5)', '#e0d2ff'],
+    jade: ['rgba(60,200,140,0.45)', '#c8f5dc']
   };
-  const NAME_COL = { ice: '#9fe7ff', rose: '#ff8fb1', emerald: '#5ee6a0', gold: '#ffd36b', frost: '#dcf7ff' };
+  const NAME_COL = { ice: '#9fe7ff', rose: '#ff8fb1', emerald: '#5ee6a0', gold: '#ffd36b', frost: '#dcf7ff', jade: '#4fd6a0' };
   let MYCOS = {};
   try { MYCOS = JSON.parse(localStorage.getItem('nightops-cos') || '{}') || {}; } catch (e) { MYCOS = {}; }
   const saveCos = () => { try { localStorage.setItem('nightops-cos', JSON.stringify(MYCOS)); } catch (e) {} };
@@ -891,6 +897,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (G.endless && n >= 40) unlock('end40');
     if (G.endless && n >= 60) unlock('end60');
     if (G.endless && n >= 90) unlock(arcane() ? 'arc90' : 'end90');
+    if (isCoop() && n >= 60) unlock('coop_end60');
   }
   // a kill you get credit for (in versus the host tells the guest about theirs)
   function onMyKill(melee, bossIdx, bossLoop, wizard) {
@@ -1603,6 +1610,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (!p.dead) {
       const bonus = rounds(36);
       onWaveSurvived();
+      if (v.coop && G.wave >= 10 && v.peers.some(o => !o.gone) && v.peers.every(o => o.gone || o.dead)) unlock('coop_last');
       p.res += bonus; addScore(G.wave * 25);
       sub = v.coop ? `+${bonus} rounds · +${G.wave * 25} points` : `Banked ${v.risk.toLocaleString()} · +${bonus} rounds`;
     }
@@ -1615,6 +1623,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     mouse.down = false;
     // versus counts for achievements but never unlocks the Arcane difficulty;
     // you can be down on wave 30 and respawn, so clearing any wave past it counts too
+    // in co-op the squad clearing wave 30 counts even if you were down for it
+    if (G.vs.coop && G.wave >= 30) unlock('coop_w30');
     if (G.wave >= 30 && !G.player.dead) { unlock('w30'); if (!G.boughtMed) unlock('ironwill'); if (arcane()) unlock('dragonslayer'); }
     if (G.wave >= 30 && !G.endless) { G.state = 'vsdecide'; G.vs.keep = null; showOverlay('vsdecide'); }
     else vsOpenShop();
@@ -2218,6 +2228,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     ui.overlay.hidden = true;
     mouse.down = false;
     G.banner = { title: 'Co-op', sub: `${list.length} soldiers · hold the yard together`, t: 2.5 };
+    if (list.length >= 4) unlock('coop_full');
     if (role === 'host') startWave(1);
   }
 
@@ -2252,6 +2263,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     v.over = true;
     v.result = { reason, team: coopTeam(), win: reason === 'done' ? 1 : -1 };
     G.state = 'vsover'; mouse.down = false;
+    if (reason === 'wipe' || reason === 'done') unlock('coop_run');
     saveMastery();
     submitRun();
     showOverlay('vsover');
