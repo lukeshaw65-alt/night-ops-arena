@@ -1195,7 +1195,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     c.on('open', () => {
       FR.conns[code] = c;
       frSend(code, Object.assign({ t: FR.outgoing[code] ? 'req' : 'hello' }, myStats()));
-      frRefresh();
+      if (FR.chWant === code) frChallenge(code);
+      else frRefresh();
     });
     c.on('data', d => frMsg(code, d));
     c.on('close', () => { if (FR.conns[code] === c) { delete FR.conns[code]; vsLost(code); frRefresh(); } });
@@ -1284,7 +1285,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     FR.timer = setTimeout(() => { if (!FR.ready) fail('hosted'); }, 10000);
     const go = () => {
       try { FR.peer = new window.Peer(FR_PREFIX + me.code, { debug: 0 }); } catch (e) { return fail('hosted'); }
-      FR.peer.on('open', () => { FR.ready = true; clearTimeout(FR.timer); Object.keys(friends).forEach(frConnect); frRefresh(); });
+      FR.peer.on('open', () => {
+        FR.ready = true; clearTimeout(FR.timer); Object.keys(friends).forEach(frConnect); frRefresh();
+        // friends who open the game later, or whose link dropped, get picked up again
+        if (!FR.retry) FR.retry = setInterval(() => { if (FR.ready && FR.peer && !FR.peer.destroyed) Object.keys(friends).forEach(frConnect); }, 20000);
+      });
       FR.peer.on('connection', frWire);
       FR.peer.on('disconnected', () => { if (FR.peer && !FR.peer.destroyed) { try { FR.peer.reconnect(); } catch (e) {} } });
       FR.peer.on('error', e => {
@@ -1426,7 +1431,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const killBonus = () => 100 + 20 * G.wave;
 
   function frChallenge(code) {
-    if (!isOnline(code)) { FR.note = 'They need to be online to challenge.'; frRefresh(); return; }
+    if (!isOnline(code)) {
+      // not linked yet: try to reach them, and send the challenge the moment the link opens
+      const nm = (friends[code] && friends[code].name) || 'They';
+      if (FR.failed || !FR.ready) { FR.note = FR.failed ? 'Challenges only work in the GitHub version of the game.' : 'Still connecting. Try again in a moment.'; frRefresh(); return; }
+      FR.chWant = code; clearTimeout(FR.chTimer);
+      FR.chTimer = setTimeout(() => {
+        if (FR.chWant !== code) return;
+        FR.chWant = null; FR.note = `${nm} isn’t online right now. They need the game open (GitHub version) to get your challenge.`; frRefresh();
+      }, 12000);
+      FR.note = `Looking for ${nm}…`;
+      frConnect(code); frRefresh();
+      return;
+    }
+    if (FR.chWant === code) { FR.chWant = null; clearTimeout(FR.chTimer); FR.note = ''; }
     if (FR.lobby || FR.co || (G.vs && !G.vs.over)) return;
     if (G.state !== 'title') { G = freshState(chosenGun); paintFloor(); }
     FR.lobby = { code, name: (friends[code] && friends[code].name) || 'Player', role: 'host', status: 'waiting', ready: false, oppReady: false };
@@ -4801,7 +4819,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         ${pf && pf.ti ? `<span class="ttl">${esc(pf.ti)}</span>` : ''}
         <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0}${f.bestA ? ` · Arcane ${f.bestA.toLocaleString()}` : ''} · ${pf ? `${pf.pts} pts · ` : ''}${seen}</span></div>
         <button type="button" class="ghost" data-fr="profile" data-code="${c}">Profile</button>
-        ${on ? `<button type="button" class="buy" data-fr="challenge" data-code="${c}">Challenge</button>` : ''}
+        <button type="button" class="${on ? 'buy' : 'ghost'}" data-fr="challenge" data-code="${c}">Challenge</button>
         <button type="button" class="ghost" data-fr="remove" data-code="${c}">Remove</button></li>`;
     }).join('');
     el.innerHTML = `<p class="note">${status}</p>
