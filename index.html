@@ -978,6 +978,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   // versus: hostile damage numbers are tuned for hostiles, so hits on the other player are scaled up
   const PVP = 6;
+  // per-gun scaling on top of that, for guns that hit players too hard
+  const PVP_GUN = { marksman: 0.5 };
   const TYPE_KEYS = ['grunt', 'runner', 'tank', 'gunner', 'plated', 'spiker', 'boss', 'pyro', 'witch', 'cleric', 'frost', 'storm', 'necro', 'skel'];
   const MODE_KEYS = ['windup', 'charge', 'spiral', 'stream', 'fade', 'appear', 'beam', 'gaze', 'trail', 'volley', 'breath', 'hstream', 'fly', 'land'];
   const isHost = () => !!(G.vs && G.vs.role === 'host');
@@ -1824,7 +1826,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       if (!gone && !v.coop && !p.dead && Math.hypot(p.x - b.x, p.y - b.y) < p.r + 3) {
         gone = true;
         if (!(p.prot > 0)) {
-          let dmg = b.dmg * PVP;
+          let dmg = b.dmg * PVP * (PVP_GUN[b.g] || 1);
           if (b.exec && p.hp < p.maxHp * 0.35) dmg *= 1 + 0.5 * b.exec;
           const l = Math.hypot(b.vx, b.vy) || 1;
           hurtPlayer(dmg, b.vx / l, b.vy / l, false, 'opp');
@@ -1876,7 +1878,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         for (const b of d.b.slice(0, 40)) {
           if (!b || v.oppBullets.length > 400) break;
           v.oppBullets.push({ tr: o.tr, x: +b.x || 0, y: +b.y || 0, vx: +b.vx || 0, vy: +b.vy || 0, life: Math.min(3, +b.l || 0), dmg: Math.min(200, Math.max(0, +b.d || 0)),
-            w: Math.min(6, +b.w || 2), k: ['knife', 'slash', 'moon', 'ball'].includes(b.k) ? b.k : '', bounce: num(b.bo, 3), burn: Math.min(10, +b.bu || 0), exec: num(b.ex, 3) });
+            w: Math.min(6, +b.w || 2), k: ['knife', 'slash', 'moon', 'ball'].includes(b.k) ? b.k : '', bounce: num(b.bo, 3), burn: Math.min(10, +b.bu || 0), exec: num(b.ex, 3),
+            g: b.k ? '' : o.g });
         }
         break;
       case 'v.sw': {
