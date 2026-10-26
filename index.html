@@ -1296,9 +1296,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       FR.failed = why; clearTimeout(FR.timer);
       try { if (FR.peer) FR.peer.destroy(); } catch (e) {}
       FR.peer = null; frRefresh();
-      // on a hosted copy a failure is usually a hiccup (or the last tab's code not freed yet), so keep trying, backing off to 15s
+      // on a hosted copy a failure is usually a hiccup (or the last tab's code not freed yet), so keep trying, but gently:
+      // the free PeerJS server blocks an address that reconnects too often, so wait 20s, then 40s, up to 5 minutes
       if (FR_HOSTED) {
-        FR.backoff = Math.min(15000, (FR.backoff || 1500) * 2);
+        FR.backoff = Math.min(300000, (FR.backoff || 10000) * 2);
         clearTimeout(FR.restart);
         FR.restart = setTimeout(() => { FR.failed = ''; frStart(); }, FR.backoff);
       }
@@ -1310,11 +1311,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         FR.ready = true; FR.backoff = 0; clearTimeout(FR.timer); Object.keys(friends).forEach(frConnect); frRefresh();
         // friends who open the game later, or whose link dropped, get picked up again
         // quick retries first, then a steady check
-        const again = () => { if (FR.ready && FR.peer && !FR.peer.destroyed) Object.keys(friends).forEach(frConnect); };
-        if (!FR.retry) { [2000, 5000, 9000].forEach(ms => setTimeout(again, ms)); FR.retry = setInterval(again, 10000); }
+        const again = () => { if (FR.ready && FR.peer && !FR.peer.destroyed && !document.hidden) Object.keys(friends).forEach(frConnect); };
+        if (!FR.retry) { [3000, 10000].forEach(ms => setTimeout(again, ms)); FR.retry = setInterval(again, 20000); }
       });
       FR.peer.on('connection', frWire);
-      FR.peer.on('disconnected', () => { if (FR.peer && !FR.peer.destroyed) { try { FR.peer.reconnect(); } catch (e) {} } });
+      // a dropped link to the server is re-made after a pause, never in a tight loop
+      FR.peer.on('disconnected', () => {
+        clearTimeout(FR.rejoin);
+        FR.rejoin = setTimeout(() => { if (FR.peer && !FR.peer.destroyed && FR.peer.disconnected) { try { FR.peer.reconnect(); } catch (e) {} } }, 5000);
+      });
       FR.peer.on('error', e => {
         if (e.type === 'peer-unavailable') {
           const m = String(e.message).match(/nightops-([A-Z0-9]{12})/);
