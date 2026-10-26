@@ -1034,12 +1034,61 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   // ---------- leaderboard: shared through the page's database when it can reach one, plus this device's top 10 ----------
+  // the GitHub copy's own global leaderboard: a Firebase project's web settings (not secret, they're public in any web app)
+  const FIREBASE = { apiKey: '', projectId: '' };
+  // just enough of a Firestore client, over its REST API, to look like the claude.ai db: doc().get/set and an ordered, limited query
+  function firestoreDb(cfg) {
+    const base = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/(default)/documents`, key = `key=${encodeURIComponent(cfg.apiKey)}`;
+    const enc = v => typeof v === 'number' ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v })
+      : typeof v === 'boolean' ? { booleanValue: v } : typeof v === 'string' ? { stringValue: v } : { nullValue: null };
+    const dec = f => 'integerValue' in f ? Number(f.integerValue) : 'doubleValue' in f ? f.doubleValue : 'booleanValue' in f ? f.booleanValue
+      : 'stringValue' in f ? f.stringValue : null;
+    const fields = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined).map(([k, v]) => [k, enc(v)]));
+    const unfields = f => Object.fromEntries(Object.entries(f || {}).map(([k, v]) => [k, dec(v)]));
+    const snap = d => ({ id: d.name.split('/').pop(), data: () => unfields(d.fields) });
+    return {
+      doc: path => ({
+        async get() {
+          const r = await fetch(`${base}/${path}?${key}`);
+          if (r.status === 404) return { exists: false, data: () => ({}) };
+          if (!r.ok) throw new Error('firestore ' + r.status);
+          const d = snap(await r.json());
+          return { exists: true, data: d.data };
+        },
+        async set(o) {
+          const r = await fetch(`${base}/${path}?${key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: fields(o) }) });
+          if (!r.ok) throw new Error('firestore ' + r.status);
+        }
+      }),
+      collection: col => ({
+        orderBy: (field, dir) => ({
+          limit: n => ({
+            async get() {
+              const q = { structuredQuery: { from: [{ collectionId: col }], orderBy: [{ field: { fieldPath: field }, direction: dir === 'desc' ? 'DESCENDING' : 'ASCENDING' }], limit: n } };
+              const r = await fetch(`${base}:runQuery?${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+              if (!r.ok) throw new Error('firestore ' + r.status);
+              return { docs: (await r.json()).filter(x => x.document).map(x => snap(x.document)) };
+            }
+          })
+        })
+      })
+    };
+  }
   let lbDb = null, lbUser = null, lbMe = null, boardTab = 'global', boardFrom = 'title', boardDiff = 'normal';
   if (window.claude && typeof window.claude.use === 'function') {
     const dbReady = window.claude.use('db').then(d => { lbDb = d; }).catch(() => {});
     const userReady = window.claude.use('user').then(async u => { lbUser = u; if (u) lbMe = await u.id(); }).catch(() => {});
     // re-post achievement points on load so the board follows any change to tier points
     Promise.all([dbReady, userReady]).then(() => { if (achCount()) postPoints(); });
+  } else if (FIREBASE.projectId && FIREBASE.apiKey) {
+    // off claude.ai (the GitHub copy) the global boards live in Firestore instead
+    lbDb = firestoreDb(FIREBASE);
+    try { lbMe = localStorage.getItem('nightops-lbid'); } catch (e) {}
+    if (!/^[a-z0-9]{16}$/.test(lbMe || '')) {
+      lbMe = Array.from({ length: 16 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
+      try { localStorage.setItem('nightops-lbid', lbMe); } catch (e) {}
+    }
+    if (achCount()) setTimeout(postPoints, 0);
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const localBoard = () => { try { return JSON.parse(localStorage.getItem('nightops-board') || '[]'); } catch (e) { return []; } };
@@ -2168,7 +2217,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     try {
       const ref = lbDb.doc(boardCol(run.diff) + '/' + lbMe), cur = await ref.get();
       if (cur.exists && (cur.data().score || 0) >= run.score) return;
-      await ref.set(run);
+      // the name rides along for boards with no claude.ai profiles to look it up from
+      await ref.set(Object.assign({}, run, { name: me.name || '' }));
     } catch (e) {}
   }
 
@@ -2178,7 +2228,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const s = await lbDb.collection(boardCol(diff)).orderBy('score', 'desc').limit(20).get();
       const rows = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
       const ps = lbUser ? await lbUser.profiles(rows.map(r => r.id)) : {};
-      return rows.map(r => Object.assign(r, { name: (ps[r.id] && ps[r.id].name) || 'Player', me: r.id === lbMe }));
+      // anyone can write these rows, so numbers are forced back to numbers before they reach the page
+      return rows.map(r => Object.assign(r, { name: (ps[r.id] && ps[r.id].name) || cleanName(r.name) || 'Player', me: r.id === lbMe,
+        score: num(r.score, 1e12), wave: num(r.wave, 9999) }));
     } catch (e) { return null; }
   }
 
@@ -4887,7 +4939,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // global achievement points live in the page's database on claude.ai
   async function postPoints() {
     if (!lbDb || !lbMe) return;
-    try { await lbDb.doc('apoints/' + lbMe).set({ pts: achPoints(), n: achCount(), title: myCos().title, nc: myCos().name, prank: pRank(), lv: pLevel(), at: Date.now() }); } catch (e) {}
+    try { await lbDb.doc('apoints/' + lbMe).set({ pts: achPoints(), n: achCount(), title: myCos().title, nc: myCos().name, prank: pRank(), lv: pLevel(), at: Date.now(), name: me.name || '' }); } catch (e) {}
   }
   async function globalAchRows() {
     if (!lbDb) return null;
@@ -4895,7 +4947,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const s = await lbDb.collection('apoints').orderBy('pts', 'desc').limit(20).get();
       const rows = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
       const ps = lbUser ? await lbUser.profiles(rows.map(r => r.id)) : {};
-      return rows.map(r => ({ name: (ps[r.id] && ps[r.id].name) || 'Player', pts: num(r.pts, 1e6), n: num(r.n, ACHS.length),
+      return rows.map(r => ({ name: (ps[r.id] && ps[r.id].name) || cleanName(r.name) || 'Player', pts: num(r.pts, 1e6), n: num(r.n, ACHS.length),
         ti: TITLES.includes(r.title) ? r.title : '', nc: COS.name[r.nc] ? r.nc : 'default', lv: lvOf(r.lv, r.prank), me: r.id === lbMe }));
     } catch (e) { return null; }
   }
