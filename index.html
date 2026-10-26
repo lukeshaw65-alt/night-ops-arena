@@ -1035,7 +1035,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   // ---------- leaderboard: shared through the page's database when it can reach one, plus this device's top 10 ----------
   // the GitHub copy's own global leaderboard: a Firebase project's web settings (not secret, they're public in any web app)
-  const FIREBASE = { apiKey: '', projectId: '' };
+  const FIREBASE = { apiKey: 'AIzaSyBjdyA4QPuUdb40SMA5ateUwsdvGTZw6o8', projectId: 'night-opps' };
   // just enough of a Firestore client, over its REST API, to look like the claude.ai db: doc().get/set and an ordered, limited query
   function firestoreDb(cfg) {
     const base = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/(default)/documents`, key = `key=${encodeURIComponent(cfg.apiKey)}`;
