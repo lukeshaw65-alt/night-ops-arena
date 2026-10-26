@@ -2212,7 +2212,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // postToBoard only replaces a row with a better score, so resending is harmless
   function postLocalBests() {
     for (const df of ['normal', 'arcane', 'coop']) {
-      const top = localBoard().filter(r => (r.diff || 'normal') === df).sort((a, c) => c.score - a.score)[0];
+      let top = localBoard().filter(r => (r.diff || 'normal') === df).sort((a, c) => c.score - a.score)[0];
+      // a best score kept without its run row (from older versions) still counts
+      if (bestFor(df) > (top ? top.score : 0)) top = { score: bestFor(df), wave: df === 'arcane' ? bestWaveA : df === 'coop' ? bestWaveC : bestWave,
+        gun: chosenGun, melee: chosenMelee, endless: false, vs: false };
       if (top) postToBoard(Object.assign({}, top, { diff: df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
     }
   }
