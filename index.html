@@ -789,7 +789,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { id: 'end40', cat: 'Survival', name: 'Endless Night I', desc: 'Reach wave 40 in Endless', tier: 'hard', reward: { tracer: 'ice' } },
     { id: 'end60', cat: 'Survival', name: 'Endless Night II', desc: 'Reach wave 60 in Endless', tier: 'extreme', reward: { title: 'Night Owl' } },
     { id: 'ironwill', cat: 'Survival', name: 'Iron Will', desc: 'Clear wave 30 without buying a Med kit', tier: 'extreme', reward: { title: 'Iron Will' } },
-    { id: 'end90', cat: 'Survival', name: 'Endless Night III', desc: 'Reach wave 90 in Endless', tier: 'legendary', reward: { title: 'the Undying', kill: 'ember' } },
+    { id: 'end90', cat: 'Survival', name: 'Endless Night III', desc: 'Reach wave 90 in Endless on Normal', tier: 'legendary', reward: { title: 'the Undying', kill: 'ember' } },
     { id: 'spec_gold', cat: 'Mastery', name: 'Specialist', desc: 'Get any weapon to Gold mastery', tier: 'medium' },
     { id: 'spec_dia', cat: 'Mastery', name: 'Diamond Specialist', desc: 'Get any weapon to Diamond mastery', tier: 'hard', reward: { tracer: 'gold' } },
     { id: 'arsenal', cat: 'Mastery', name: 'Arsenal', desc: 'Get every gun to Bronze mastery', tier: 'hard', prog: () => [GUNS.filter(g => rankOf(g.id) >= 1).length, GUNS.length], reward: { decal: 'star' } },
@@ -806,7 +806,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { id: 'wiz1000', cat: 'Arcane', name: 'Hex Breaker', desc: 'Kill 1,000 wizards', tier: 'hard', prog: () => [st('wizards'), 1000], reward: { tracer: 'arcane' } },
     { id: 'fireproof', cat: 'Arcane', name: 'Fireproof', desc: 'Clear an Arcane wave (wave 10 or later) without standing in fire, poison or ice', tier: 'hard', reward: { name: 'frost' } },
     { id: 'beasttamer', cat: 'Arcane', name: 'Beast Tamer', desc: 'Defeat all 10 fantasy beasts', tier: 'extreme', prog: () => [beastsBeaten(), 10], reward: { title: 'Beast Tamer', decal: 'dragon' } },
-    { id: 'dragonslayer', cat: 'Arcane', name: 'Dragonslayer', desc: 'Clear wave 30 on Arcane', tier: 'legendary', reward: { title: 'Dragonslayer', kill: 'arcane' } }
+    { id: 'dragonslayer', cat: 'Arcane', name: 'Dragonslayer', desc: 'Clear wave 30 on Arcane', tier: 'legendary', reward: { title: 'Dragonslayer', kill: 'arcane' } },
+    { id: 'arc90', cat: 'Arcane', name: 'Endless Sorcery', desc: 'Reach wave 90 in Endless on Arcane', tier: 'legendary', reward: { title: 'the Spellbreaker' } }
   ];
   const ACH_BY = Object.fromEntries(ACHS.map(a => [a.id, a]));
   const TITLES = ACHS.filter(a => a.reward && a.reward.title).map(a => a.reward.title);
@@ -885,7 +886,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (n >= 20) unlock('surv20');
     if (G.endless && n >= 40) unlock('end40');
     if (G.endless && n >= 60) unlock('end60');
-    if (G.endless && n >= 90) unlock('end90');
+    if (G.endless && n >= 90) unlock(arcane() ? 'arc90' : 'end90');
   }
   // a kill you get credit for (in versus the host tells the guest about theirs)
   function onMyKill(melee, bossIdx, bossLoop, wizard) {
