@@ -1079,7 +1079,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const dbReady = window.claude.use('db').then(d => { lbDb = d; }).catch(() => {});
     const userReady = window.claude.use('user').then(async u => { lbUser = u; if (u) lbMe = await u.id(); }).catch(() => {});
     // re-post achievement points on load so the board follows any change to tier points
-    Promise.all([dbReady, userReady]).then(() => { if (achCount()) postPoints(); });
+    Promise.all([dbReady, userReady]).then(() => { if (achCount()) postPoints(); postLocalBests(); });
   } else if (FIREBASE.projectId && FIREBASE.apiKey) {
     // off claude.ai (the GitHub copy) the global boards live in Firestore instead
     lbDb = firestoreDb(FIREBASE);
@@ -1088,7 +1088,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       lbMe = Array.from({ length: 16 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
       try { localStorage.setItem('nightops-lbid', lbMe); } catch (e) {}
     }
-    if (achCount()) setTimeout(postPoints, 0);
+    // scores and points from before the board existed go up on the first load
+    setTimeout(() => { if (achCount()) postPoints(); postLocalBests(); }, 0);
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const localBoard = () => { try { return JSON.parse(localStorage.getItem('nightops-board') || '[]'); } catch (e) { return []; } };
@@ -1379,11 +1380,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (d.unlock && d.unlock.arcane) jset('nightops-unlock', { arcane: true });
     recordBest(num(d.bestA, 1e9), num(d.bestWaveA, 9999), 'arcane');
     recordBest(num(d.bestC, 1e9), num(d.bestWaveC, 9999), 'coop');
-    // carry the best run of each difficulty onto the global leaderboards too (only does anything on claude.ai)
-    for (const df of ['normal', 'arcane', 'coop']) {
-      const top = localBoard().filter(r => (r.diff || 'normal') === df).sort((a, c) => c.score - a.score)[0];
-      if (top) postToBoard(Object.assign({}, top, { diff: df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
-    }
+    // carry the best run of each difficulty onto the global leaderboards too
+    postLocalBests();
     saveMastery();
     checkRanks(); checkStats();
     if (Object.keys(friends).length) unlock('squad');
@@ -2210,7 +2208,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     showOverlay('vsover');
   }
 
-  // importing on claude.ai also carries your best run onto the global leaderboard
+  // your best run of each difficulty on this device, sent to the global boards (on load and after an import);
+  // postToBoard only replaces a row with a better score, so resending is harmless
+  function postLocalBests() {
+    for (const df of ['normal', 'arcane', 'coop']) {
+      const top = localBoard().filter(r => (r.diff || 'normal') === df).sort((a, c) => c.score - a.score)[0];
+      if (top) postToBoard(Object.assign({}, top, { diff: df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
+    }
+  }
   const boardCol = diff => diff === 'arcane' ? 'scores_arcane' : diff === 'coop' ? 'scores_coop' : 'scores';
   async function postToBoard(run) {
     if (!lbDb || !lbMe || !run) return;
