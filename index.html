@@ -1518,8 +1518,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   function vsAfterClear() {
     mouse.down = false;
-    // versus counts for achievements but never unlocks the Arcane difficulty
-    if (G.wave === 30 && !G.player.dead) { unlock('w30'); if (!G.boughtMed) unlock('ironwill'); if (arcane()) unlock('dragonslayer'); }
+    // versus counts for achievements but never unlocks the Arcane difficulty;
+    // you can be down on wave 30 and respawn, so clearing any wave past it counts too
+    if (G.wave >= 30 && !G.player.dead) { unlock('w30'); if (!G.boughtMed) unlock('ironwill'); if (arcane()) unlock('dragonslayer'); }
     if (G.wave >= 30 && !G.endless) { G.state = 'vsdecide'; G.vs.keep = null; showOverlay('vsdecide'); }
     else vsOpenShop();
   }
