@@ -451,11 +451,29 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     turret: { r: 14, hp: 4, speed: 0, dmg: 8, pts: 15, body: '#8a7a5a', dark: '#3a3020', glow: '#ff9a3c', invasion: true },
     splitling: { r: 10, hp: 2, speed: 150, dmg: 7, pts: 0, body: '#4fae5a', dark: '#1d4a22', glow: '#b6ff9a', invasion: true, minion: true },
     hatch:  { r: 9, hp: 1, speed: 165, dmg: 7, pts: 0, body: '#5f7a3a', dark: '#26341a', glow: '#c6ff6b', invasion: true, minion: true },
-    decoy:  { r: 38, hp: 1, speed: 100, dmg: 12, pts: 0, body: '#3a2a66', dark: '#150f2a', glow: '#b46bff', invasion: true, minion: true }
+    decoy:  { r: 38, hp: 1, speed: 100, dmg: 12, pts: 0, body: '#3a2a66', dark: '#150f2a', glow: '#b46bff', invasion: true, minion: true },
+    // Inferno difficulty: demons climb out of fire rifts, angels dive down out of the sky
+    imp:    { r: 10, hp: 1, speed: 175, dmg: 8, pts: 8, body: '#b8321f', dark: '#4a0f08', glow: '#ffb347', inferno: true, realm: 'demon', from: 1,
+      intro: 'Imp · small, fast demons that rush you in packs' },
+    archer: { r: 13, hp: 3, speed: 85, dmg: 10, pts: 22, body: '#f4ecd2', dark: '#8a7a4a', glow: '#ffe68a', inferno: true, realm: 'angel', from: 1, keep: [260, 380],
+      intro: 'Cherub Archer · keeps its distance and fires light arrows' },
+    caster: { r: 14, hp: 4, speed: 78, dmg: 12, pts: 24, body: '#6a1a12', dark: '#2a0806', glow: '#ff6a2a', inferno: true, realm: 'demon', from: 2, keep: [230, 370], cast: 2.4,
+      intro: 'Hellcaster · lobs fireballs that leave burning ground' },
+    valkyrie: { r: 14, hp: 4, speed: 100, dmg: 14, pts: 32, body: '#dfe6ee', dark: '#6a7a8a', glow: '#fff3b0', inferno: true, realm: 'angel', from: 4,
+      intro: 'Valkyrie · flies up out of reach, then dives onto your spot' },
+    hound:  { r: 13, hp: 3, speed: 200, dmg: 10, pts: 26, body: '#3a1410', dark: '#140604', glow: '#ff5a2a', inferno: true, realm: 'demon', from: 5,
+      intro: 'Hellhound · very fast, and leaves a trail of fire' },
+    seraph: { r: 17, hp: 6, speed: 75, dmg: 14, pts: 40, body: '#fff6d8', dark: '#b89a4a', glow: '#ffe68a', inferno: true, realm: 'angel', from: 7, noMelee: true,
+      intro: 'Seraph Guard · its holy aura stops melee, shoot it' },
+    brute:  { r: 22, hp: 9, speed: 62, dmg: 22, pts: 50, body: '#7a2418', dark: '#2e0a06', glow: '#ff8a3c', inferno: true, realm: 'demon', from: 8, noGun: true,
+      intro: 'Pit Brute · bullets bounce off its hide, use melee' },
+    herald: { r: 14, hp: 5, speed: 70, dmg: 10, pts: 45, body: '#f2e6c0', dark: '#9a7a3a', glow: '#ffd36b', inferno: true, realm: 'angel', from: 11, keep: [280, 420], cast: 5,
+      intro: 'Herald · its horn speeds up every hostile nearby. Kill it first' }
   };
   const WIZARDS = ['pyro', 'witch', 'cleric', 'frost', 'storm', 'necro'];
   const isWizard = t => !!(TYPES[t] && TYPES[t].arcane);
   const isInvader = t => !!(TYPES[t] && TYPES[t].invasion);
+  const isFiend = t => !!(TYPES[t] && TYPES[t].inferno);
 
   // every gun lands near 4 damage per second sustained; they differ in how you get there
   const GUNS = [
@@ -531,8 +549,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   let chosenMelee = 'machete';
   try { const s = localStorage.getItem('nightops-melee'); if (s && MELEE_BY[s]) chosenMelee = s; } catch (e) {}
   // the difficulties, easiest first; anything else that arrives (old saves, the network) counts as Normal
-  const DIFFS = ['normal', 'arcane', 'invasion'];
-  const DIFF_NAME = { normal: 'Normal', arcane: 'Arcane', invasion: 'Invasion' };
+  const DIFFS = ['normal', 'arcane', 'invasion', 'inferno'];
+  const DIFF_NAME = { normal: 'Normal', arcane: 'Arcane', invasion: 'Invasion', inferno: 'Inferno' };
   const validDiff = d => DIFFS.includes(d) ? d : 'normal';
   // the difficulty you'll deploy on; the harder ones are only honoured once they're unlocked
   let chosenDiff = 'normal';
@@ -641,14 +659,59 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       phases: [['any', 0.12], ['melee', 0.1], ['any', 0.12], ['gun', 0.1]] }
   ];
   INVADERS.forEach((b, i) => { b.pts = 350 * (i + 1); b.dmg = Math.round((30 + 2 * i) * 1.25); b.cd *= 0.85; });
+
+  // Inferno difficulty bosses: a demon and an angel fight you at once, one pair every 3 waves; index 9 is the wave-30 pair.
+  // Each half is its own boss (pair[0] the demon, pair[1] the angel); when one falls the other enrages
+  const DEMON = { realm: 'demon', color: '#9a2a1a', dark: '#3a0c06', shot: '#ff6a2a' };
+  const ANGEL = { realm: 'angel', color: '#f4ecd2', dark: '#a08a4a', shot: '#ffe68a', beamCol: '#ffe68a' };
+  const FIENDS = [
+    { name: 'Ember Imp King & Cherub Warden', title: 'The First Skirmish', pair: [
+      { name: 'Ember Imp King', kind: 'imp', r: 30, speed: 85, attacks: ['aimed5', 'charge', 'ring12', 'rift'], cd: 1.7 },
+      { name: 'Cherub Warden', kind: 'cherub', r: 28, speed: 70, attacks: ['fan7', 'aimed5', 'ring12'], cd: 1.7 }] },
+    { name: 'Hellhound Alpha & Winged Lancer', title: 'Fang and Spear', pair: [
+      { name: 'Hellhound Alpha', kind: 'hound', r: 34, speed: 110, attacks: ['triplecharge', 'firering', 'fan7'], cd: 1.6 },
+      { name: 'Winged Lancer', kind: 'lancer', r: 30, speed: 95, attacks: ['dive', 'aimed5', 'fan9'], cd: 1.5 }] },
+    { name: 'Brimstone Golem & Shield Seraph', title: 'Rock and Light', pair: [
+      { name: 'Brimstone Golem', kind: 'golem', r: 42, speed: 45, attacks: ['stomp', 'firemortar', 'ring16'], cd: 1.6 },
+      { name: 'Shield Seraph', kind: 'seraph', r: 32, speed: 70, orbiters: 3, attacks: ['fan7', 'ring12', 'beam'], cd: 1.5 }] },
+    { name: 'Soul Reaper & Choir Angel', title: 'The Last Hymn', pair: [
+      { name: 'Soul Reaper', kind: 'reaper', r: 34, speed: 80, attacks: ['teleport', 'spiral', 'fan9'], cd: 1.4 },
+      { name: 'Choir Angel', kind: 'choir', r: 30, speed: 60, attacks: ['ring16', 'stream', 'lightning'], cd: 1.4 }] },
+    { name: 'Lava Serpent & Storm Valkyrie', title: 'Fire Below, Thunder Above', pair: [
+      { name: 'Lava Serpent', kind: 'serpent', r: 40, speed: 70, attacks: ['firebreath', 'firemortar', 'ring16'], cd: 1.35 },
+      { name: 'Storm Valkyrie', kind: 'valkyrie', r: 32, speed: 100, attacks: ['lightning', 'dive', 'fan9'], cd: 1.3 }] },
+    { name: 'Pit Fiend & Throne Wheel', title: 'The Pit and the Wheel', pair: [
+      { name: 'Pit Fiend', kind: 'fiend', r: 46, speed: 60, attacks: ['charge', 'fireball', 'firering', 'rift'], cd: 1.3 },
+      { name: 'Throne Wheel', kind: 'wheel', r: 38, speed: 50, attacks: ['lasers', 'ring16', 'spiral'], cd: 1.3 }] },
+    { name: 'Hell Knight & Holy Paladin', title: 'Sword and Shield', pair: [
+      { name: 'Hell Knight', kind: 'knight', r: 36, speed: 80, only: 'melee', attacks: ['charge', 'firebreath', 'fan7'], cd: 1.25 },
+      { name: 'Holy Paladin', kind: 'paladin', r: 36, speed: 75, only: 'gun', attacks: ['slam', 'aimed5', 'ring16'], cd: 1.25 }] },
+    { name: 'Inferno Witch & Light Weaver', title: 'Spells of Fire and Light', pair: [
+      { name: 'Inferno Witch', kind: 'witch', r: 32, speed: 75, attacks: ['firemortar', 'spiral', 'teleport'], cd: 1.2 },
+      { name: 'Light Weaver', kind: 'weaver', r: 32, speed: 70, attacks: ['beam', 'lasers', 'fan9'], cd: 1.2 }] },
+    { name: 'Horned Behemoth & Sunbearer', title: 'Earthquake and Dawn', pair: [
+      { name: 'Horned Behemoth', kind: 'behemoth', r: 50, speed: 55, attacks: ['triplecharge', 'stomp', 'firering'], cd: 1.15 },
+      { name: 'Sunbearer', kind: 'sun', r: 38, speed: 60, attacks: ['sweep', 'lightning', 'ring20'], cd: 1.15 }] },
+    { name: 'The Fallen King & The Archangel', title: 'The War Without End', pair: [
+      { name: 'The Fallen King', kind: 'king', r: 48, speed: 70, attacks: ['charge', 'firebreath', 'spiral', 'rift', 'firemortar', 'ring20'], cd: 1,
+        phases: [['any', 0.12], ['melee', 0.1], ['any', 0.12], ['gun', 0.1]] },
+      // the Archangel's phases run opposite to the Fallen King's, so you need both weapons at once
+      { name: 'The Archangel', kind: 'archangel', r: 46, speed: 75, attacks: ['beam', 'dive', 'lightning', 'lasers', 'ring20', 'stream'], cd: 1,
+        phases: [['any', 0.12], ['gun', 0.1], ['any', 0.12], ['melee', 0.1]] }] }
+  ];
+  FIENDS.forEach((p, i) => p.pair.forEach((h, s) => {
+    Object.assign(h, Object.assign({}, s ? ANGEL : DEMON, { twin: true, title: p.title, pts: 400 * (i + 1), dmg: Math.round((32 + 2 * i) * 1.3) }, h));
+    h.cd *= 0.85;
+  }));
   const arcane = () => G.diff === 'arcane';
   const invasion = () => G.diff === 'invasion';
-  const bossList = () => arcane() ? BEASTS : invasion() ? INVADERS : BOSSES;
-  const bossesFor = d => d === 'arcane' ? BEASTS : d === 'invasion' ? INVADERS : BOSSES;
+  const inferno = () => G.diff === 'inferno';
+  const bossList = () => arcane() ? BEASTS : invasion() ? INVADERS : inferno() ? FIENDS : BOSSES;
+  const bossesFor = d => d === 'arcane' ? BEASTS : d === 'invasion' ? INVADERS : d === 'inferno' ? FIENDS : BOSSES;
   // the harder economies: pricier shop, rarer ammo, more XP
-  const priceMul = () => arcane() ? 1.25 : invasion() ? 1.5 : 1;
+  const priceMul = () => arcane() ? 1.25 : invasion() ? 1.5 : inferno() ? 1.75 : 1;
   const sCost = s => Math.round(s.cost * priceMul());
-  const xpMul = () => arcane() ? 1.25 : invasion() ? 1.4 : 1;
+  const xpMul = () => arcane() ? 1.25 : invasion() ? 1.4 : inferno() ? 1.6 : 1;
   const gunDef = () => GUN[G.gun] || GUNS[0];
   const meleeDef = () => MELEE_BY[G.melee] || MELEE[0];
   const meleeRate = () => meleeDef().rate * Math.pow(0.85, lvl('k_quick')) * (meleeRank() >= 7 ? 0.95 : 1);
@@ -818,14 +881,16 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   };
   let STATS = {};
   try { STATS = JSON.parse(localStorage.getItem('nightops-stats') || '{}') || {}; } catch (e) { STATS = {}; }
-  STATS = Object.assign({ kills: 0, meleeKills: 0, crits: 0, bosses: {}, beasts: {}, invaders: {}, wizards: 0, aliens: 0, runs: 0, waves: 0, deaths: 0, vsPlayed: 0, vsWins: 0, vsLosses: 0, pvp: 0, time: 0 }, STATS);
+  STATS = Object.assign({ kills: 0, meleeKills: 0, crits: 0, bosses: {}, beasts: {}, invaders: {}, fiends: {}, wizards: 0, aliens: 0, demons: 0, angels: 0,
+    runs: 0, waves: 0, deaths: 0, vsPlayed: 0, vsWins: 0, vsLosses: 0, pvp: 0, time: 0 }, STATS);
   // per-boss kill counts, one table for each difficulty's bosses
-  const BOSS_STATS = ['bosses', 'beasts', 'invaders'];
+  const BOSS_STATS = ['bosses', 'beasts', 'invaders', 'fiends'];
   for (const k of BOSS_STATS) if (!STATS[k] || typeof STATS[k] !== 'object') STATS[k] = {};
   const st = k => STATS[k] || 0;
   const bossesBeaten = () => BOSSES.filter((b, i) => STATS.bosses[i] > 0).length;
   const beastsBeaten = () => BEASTS.filter((b, i) => STATS.beasts[i] > 0).length;
   const invadersBeaten = () => INVADERS.filter((b, i) => STATS.invaders[i] > 0).length;
+  const fiendsBeaten = () => FIENDS.filter((b, i) => STATS.fiends[i] > 0).length;
   const ACHS = [
     { id: 'first_blood', cat: 'Combat', name: 'First Blood', desc: 'Kill your first hostile', tier: 'easy', prog: () => [st('kills'), 1] },
     { id: 'crits', cat: 'Combat', name: 'Critical Thinking', desc: 'Land 100 critical hits', tier: 'easy', prog: () => [st('crits'), 100] },
@@ -880,7 +945,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { id: 'repelled', cat: 'Invasion', name: 'Invasion Repelled', desc: 'Defeat all 10 Invasion bosses', tier: 'extreme', prog: () => [invadersBeaten(), 10], reward: { title: 'Xeno Hunter', decal: 'ufo' } },
     { id: 'mothership', cat: 'Invasion', name: 'Mothership Down', desc: 'Clear wave 30 on Invasion', tier: 'insane', reward: { title: 'Earth’s Defender', kill: 'plasma' } },
     { id: 'inv90', cat: 'Invasion', name: 'Last Line', desc: 'Reach wave 90 in Endless on Invasion', tier: 'legendary', reward: { title: 'the Last Line' } },
-    { id: 'unbreakable', cat: 'Invasion', name: 'Unbreakable', desc: 'Clear wave 30 on Invasion without buying Body armor, Field medic training, Trauma plates or a Med kit', tier: 'mythic', reward: { title: 'Unbreakable', tracer: 'mythic' } }
+    { id: 'unbreakable', cat: 'Invasion', name: 'Unbreakable', desc: 'Clear wave 30 on Invasion without buying Body armor, Field medic training, Trauma plates or a Med kit', tier: 'mythic', reward: { title: 'Unbreakable', tracer: 'mythic' } },
+    { id: 'hellfire', cat: 'Inferno', name: 'Hellfire', desc: 'Kill 100 demons', tier: 'easy', prog: () => [st('demons'), 100] },
+    { id: 'fallen', cat: 'Inferno', name: 'Fallen Angels', desc: 'Kill 100 angels', tier: 'easy', prog: () => [st('angels'), 100] },
+    { id: 'firstpair', cat: 'Inferno', name: 'First Pair', desc: 'Defeat the Ember Imp King and the Cherub Warden', tier: 'medium' },
+    { id: 'balance', cat: 'Inferno', name: 'Balance', desc: 'Defeat both bosses of an Inferno pair within 5 seconds of each other', tier: 'veryhard', reward: { name: 'ember' } },
+    { id: 'holywar', cat: 'Inferno', name: 'Holy War', desc: 'Defeat all 10 Inferno boss pairs', tier: 'extreme', prog: () => [fiendsBeaten(), 10], reward: { title: 'the Balancer', decal: 'halo' } },
+    { id: 'hellwalker', cat: 'Inferno', name: 'Hellwalker', desc: 'Clear wave 30 on Inferno', tier: 'insane', reward: { title: 'Hellwalker', kill: 'hellfire', tracer: 'hellfire' } },
+    { id: 'inf90', cat: 'Inferno', name: 'Eternal Inferno', desc: 'Reach wave 90 in Endless on Inferno', tier: 'legendary', reward: { title: 'the Eternal' } }
   ];
   const ACH_BY = Object.fromEntries(ACHS.map(a => [a.id, a]));
   const TITLES = ACHS.filter(a => a.reward && a.reward.title).map(a => a.reward.title);
@@ -892,21 +964,22 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
   // cosmetics: the first of each list is always yours; the rest come from achievements
   const COS = {
-    tracer: { amber: 'Amber', crimson: 'Crimson', violet: 'Violet', ice: 'Ice', gold: 'Gold', arcane: 'Arcane', jade: 'Jade', plasma: 'Plasma', mythic: 'Mythic' },
-    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', frost: 'Frost', jade: 'Jade', neon: 'Neon', rainbow: 'Rainbow', radiant: 'Radiant' },
-    decal: { none: 'None', skull: 'Skull', pig: 'Pig', star: 'Star', crown: 'Crown', dragon: 'Dragon', ufo: 'UFO' },
-    kill: { blood: 'Default', sparks: 'Sparks', smoke: 'Smoke', confetti: 'Confetti', ember: 'Embers', arcane: 'Arcane', plasma: 'Plasma' }
+    tracer: { amber: 'Amber', crimson: 'Crimson', violet: 'Violet', ice: 'Ice', gold: 'Gold', arcane: 'Arcane', jade: 'Jade', plasma: 'Plasma', hellfire: 'Hellfire', mythic: 'Mythic' },
+    name: { default: 'Default', ice: 'Ice', rose: 'Rose', emerald: 'Emerald', gold: 'Gold', frost: 'Frost', jade: 'Jade', neon: 'Neon', ember: 'Ember', rainbow: 'Rainbow', radiant: 'Radiant' },
+    decal: { none: 'None', skull: 'Skull', pig: 'Pig', star: 'Star', crown: 'Crown', dragon: 'Dragon', ufo: 'UFO', halo: 'Halo' },
+    kill: { blood: 'Default', sparks: 'Sparks', smoke: 'Smoke', confetti: 'Confetti', ember: 'Embers', arcane: 'Arcane', plasma: 'Plasma', hellfire: 'Hellfire' }
   };
   const COS_LABEL = { title: 'Title', name: 'Name colour', tracer: 'Bullet tracers', decal: 'Helmet decal', kill: 'Kill effect' };
   const TRACER_COL = {
     amber: ['rgba(242,177,52,0.35)', '#ffe2a0'], crimson: ['rgba(230,60,60,0.45)', '#ffb0a8'], violet: ['rgba(170,110,255,0.45)', '#e2d0ff'],
     ice: ['rgba(127,232,255,0.4)', '#d8fbff'], gold: ['rgba(255,210,80,0.5)', '#fff1b8'], arcane: ['rgba(140,90,255,0.5)', '#e0d2ff'],
-    jade: ['rgba(60,200,140,0.45)', '#c8f5dc'], plasma: ['rgba(90,255,190,0.5)', '#d6fff0'], mythic: ['rgba(255,122,217,0.6)', '#ffe3f6']
+    jade: ['rgba(60,200,140,0.45)', '#c8f5dc'], plasma: ['rgba(90,255,190,0.5)', '#d6fff0'], hellfire: ['rgba(255,90,30,0.55)', '#ffd0a0'],
+    mythic: ['rgba(255,122,217,0.6)', '#ffe3f6']
   };
   // Mythic tracers shimmer through pinks and violets; the rest are fixed
   const tracerCol = (k, t) => k === 'mythic'
     ? [`hsla(${300 + 30 * Math.sin(t * 3)},95%,68%,0.6)`, `hsl(${300 + 30 * Math.sin(t * 3 + 1)},100%,92%)`] : TRACER_COL[k] || TRACER_COL.amber;
-  const NAME_COL = { ice: '#9fe7ff', rose: '#ff8fb1', emerald: '#5ee6a0', gold: '#ffd36b', frost: '#dcf7ff', jade: '#4fd6a0', neon: '#5dfcff' };
+  const NAME_COL = { ice: '#9fe7ff', rose: '#ff8fb1', emerald: '#5ee6a0', gold: '#ffd36b', frost: '#dcf7ff', jade: '#4fd6a0', neon: '#5dfcff', ember: '#ff8a4a' };
   let MYCOS = {};
   try { MYCOS = JSON.parse(localStorage.getItem('nightops-cos') || '{}') || {}; } catch (e) { MYCOS = {}; }
   const saveCos = () => { try { localStorage.setItem('nightops-cos', JSON.stringify(MYCOS)); } catch (e) {} };
@@ -942,6 +1015,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (st('aliens') >= 100) unlock('alien100');
     if (st('aliens') >= 1000) unlock('alien1000');
     if (invadersBeaten() >= 10) unlock('repelled');
+    if (st('demons') >= 100) unlock('hellfire');
+    if (st('angels') >= 100) unlock('fallen');
+    if (fiendsBeaten() >= 10) unlock('holywar');
     if (st('kills') >= 1) unlock('first_blood');
     if (st('kills') >= 1000) unlock('ext1');
     if (st('kills') >= 5000) unlock('ext2');
@@ -966,15 +1042,17 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (n >= 20) unlock('surv20');
     if (G.endless && n >= 40) unlock('end40');
     if (G.endless && n >= 60) unlock('end60');
-    if (G.endless && n >= 90) unlock(arcane() ? 'arc90' : invasion() ? 'inv90' : 'end90');
+    if (G.endless && n >= 90) unlock(arcane() ? 'arc90' : invasion() ? 'inv90' : inferno() ? 'inf90' : 'end90');
     if (isCoop() && n >= 60) unlock('coop_end60');
   }
   // a kill you get credit for (in versus the host tells the guest about theirs)
-  function onMyKill(melee, bossIdx, bossLoop, wizard, alien) {
+  // realm: 'demon' or 'angel' for an Inferno hostile
+  function onMyKill(melee, bossIdx, bossLoop, wizard, alien, realm) {
     STATS.kills++;
     if (melee) STATS.meleeKills++;
     if (wizard) STATS.wizards++;
     if (alien) STATS.aliens++;
+    if (realm === 'demon') STATS.demons++; else if (realm === 'angel') STATS.angels++;
     if (bossIdx != null && bossIdx >= 0) {
       if (arcane()) {
         STATS.beasts[bossIdx] = (STATS.beasts[bossIdx] || 0) + 1;
@@ -982,6 +1060,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       } else if (invasion()) {
         STATS.invaders[bossIdx] = (STATS.invaders[bossIdx] || 0) + 1;
         if (bossIdx === 0) unlock('saucer');
+      } else if (inferno()) {
+        STATS.fiends[bossIdx] = (STATS.fiends[bossIdx] || 0) + 1;
+        if (bossIdx === 0) unlock('firstpair');
       } else {
         STATS.bosses[bossIdx] = (STATS.bosses[bossIdx] || 0) + 1;
         if (bossIdx === 0) unlock('bacon');
@@ -1004,10 +1085,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (!G.boughtMed) unlock('ironwill');
     if (arcane()) unlock('dragonslayer');
     if (invasion()) { unlock('mothership'); if (!G.boughtDef) unlock('unbreakable'); }
+    if (inferno()) unlock('hellwalker');
   }
   // called at every wave start, for host, guest and solo alike
   function onWaveStart(n) {
-    G.waveHurt = false; G.hazHit = false; G.podHit = false;
+    G.waveHurt = false; G.hazHit = false; G.podHit = false; G.pairT = null;
     if (n % 3 === 0) { G.bossHit = false; G.bossT0 = G.time || 0; }
     checkWave(n);
   }
@@ -1041,7 +1123,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const blastRadius = () => lvl('m_boom') ? 40 + 25 * lvl('m_boom') : 0;
   // ammo amounts are written for the 12-round carbine and scale with each gun's magazine
   const rounds = n => Math.max(1, Math.round(n * gunDef().mag / 12));
-  const defOf = e => e.type === 'boss' ? bossList()[e.boss] : TYPES[e.type];
+  // a boss's own definition: for an Inferno pair, the demon (twin 0) or the angel (twin 1) half
+  const bossDef = e => { const b = bossList()[e.boss]; return b && b.pair ? b.pair[e.twin ? 1 : 0] : b; };
+  const defOf = e => e.type === 'boss' ? bossDef(e) : TYPES[e.type];
   // endless mode: bosses repeat in order, each lap ("loop") tougher than the last
   const bossSlot = n => { const k = n / 3 - 1; return { idx: k % BOSSES.length, loop: Math.floor(k / BOSSES.length) }; };
   const MARKS = ['II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
@@ -1055,11 +1139,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // each phase lasts until you deal its share of the boss's max health. a boss with `only` is locked to one kind for the whole fight
   const bossShield = e => {
     if (e.type !== 'boss') return 'any';
-    if (bossList()[e.boss].only) return bossList()[e.boss].only;
-    const ph = bossList()[e.boss].phases;
-    return ph ? ph[(e.phaseI || 0) % ph.length][0] : 'any';
+    const b = bossDef(e);
+    if (b.only) return b.only;
+    return b.phases ? b.phases[(e.phaseI || 0) % b.phases.length][0] : 'any';
   };
-  const phaseNeed = e => { const ph = bossList()[e.boss].phases; return e.max * ph[(e.phaseI || 0) % ph.length][1]; };
+  const phaseNeed = e => { const ph = bossDef(e).phases; return e.max * ph[(e.phaseI || 0) % ph.length][1]; };
   // an Engineer's field: 'melee' means only melee hurts it, 'gun' means only guns do
   const gunProof = e => defOf(e).noGun || e.field === 'melee' || bossShield(e) === 'melee';
   const meleeProof = e => defOf(e).noMelee || e.field === 'gun' || bossShield(e) === 'gun';
@@ -1072,7 +1156,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   // per-gun scaling on top of that, for guns that hit players too hard
   const PVP_GUN = { marksman: 0.5 };
   const TYPE_KEYS = ['grunt', 'runner', 'tank', 'gunner', 'plated', 'spiker', 'boss', 'pyro', 'witch', 'cleric', 'frost', 'storm', 'necro', 'skel',
-    'skitter', 'raygun', 'drone', 'shieldbot', 'phaser', 'engineer', 'splitter', 'turret', 'splitling', 'hatch', 'decoy'];
+    'skitter', 'raygun', 'drone', 'shieldbot', 'phaser', 'engineer', 'splitter', 'turret', 'splitling', 'hatch', 'decoy',
+    'imp', 'archer', 'caster', 'valkyrie', 'hound', 'seraph', 'brute', 'herald'];
   const MODE_KEYS = ['windup', 'charge', 'spiral', 'stream', 'fade', 'appear', 'beam', 'gaze', 'trail', 'volley', 'breath', 'hstream', 'fly', 'land',
     'tractor', 'lasers', 'scramble'];
   const isHost = () => !!(G.vs && G.vs.role === 'host');
@@ -1223,8 +1308,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   let bestC = num(jget('nightops-best-coop', 0), 1e9), bestWaveC = num(jget('nightops-bestwave-coop', 0), 9999);
   // and Invasion
   let bestI = num(jget('nightops-best-invasion', 0), 1e9), bestWaveI = num(jget('nightops-bestwave-invasion', 0), 9999);
-  const bestFor = d => d === 'arcane' ? bestA : d === 'invasion' ? bestI : d === 'coop' ? bestC : best;
-  const waveFor = d => d === 'arcane' ? bestWaveA : d === 'invasion' ? bestWaveI : d === 'coop' ? bestWaveC : bestWave;
+  // and Inferno
+  let bestF = num(jget('nightops-best-inferno', 0), 1e9), bestWaveF = num(jget('nightops-bestwave-inferno', 0), 9999);
+  const bestFor = d => d === 'arcane' ? bestA : d === 'invasion' ? bestI : d === 'inferno' ? bestF : d === 'coop' ? bestC : best;
+  const waveFor = d => d === 'arcane' ? bestWaveA : d === 'invasion' ? bestWaveI : d === 'inferno' ? bestWaveF : d === 'coop' ? bestWaveC : bestWave;
   function recordBest(score, wave, diff) {
     if (diff === 'coop') {
       if (score > bestC) { bestC = score; jset('nightops-best-coop', bestC); }
@@ -1235,6 +1322,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     } else if (diff === 'invasion') {
       if (score > bestI) { bestI = score; jset('nightops-best-invasion', bestI); }
       if (wave > bestWaveI) { bestWaveI = wave; jset('nightops-bestwave-invasion', bestWaveI); }
+    } else if (diff === 'inferno') {
+      if (score > bestF) { bestF = score; jset('nightops-best-inferno', bestF); }
+      if (wave > bestWaveF) { bestWaveF = wave; jset('nightops-bestwave-inferno', bestWaveF); }
     } else {
       if (score > best) { best = score; saveBest(); }
       if (wave > bestWave) { bestWave = wave; jset('nightops-bestwave', bestWave); }
@@ -1245,7 +1335,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     || localBoard().some(r => !r.vs && (r.diff || 'normal') === 'normal' && r.wave > 30);
   // Invasion unlocks by clearing wave 30 on Arcane in the main game
   const invasionUnlocked = () => !!jget('nightops-unlock', {}).invasion;
-  const diffUnlocked = d => d === 'normal' || (d === 'arcane' && arcaneUnlocked()) || (d === 'invasion' && invasionUnlocked());
+  // Inferno unlocks by clearing wave 30 on Invasion in the main game
+  const infernoUnlocked = () => !!jget('nightops-unlock', {}).inferno;
+  const diffUnlocked = d => d === 'normal' || (d === 'arcane' && arcaneUnlocked()) || (d === 'invasion' && invasionUnlocked()) || (d === 'inferno' && infernoUnlocked());
   function unlockDiff(d, sub) {
     const u = jget('nightops-unlock', {});
     if (u[d]) return;
@@ -1256,12 +1348,13 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
   const unlockArcane = () => unlockDiff('arcane', 'Wizards and fantasy beasts await on the main menu');
   const unlockInvasion = () => unlockDiff('invasion', 'The alien invasion awaits on the main menu');
+  const unlockInferno = () => unlockDiff('inferno', 'Demons and angels await on the main menu');
   // clearing wave 30 solo opens up the next difficulty
-  function unlockNext() { if (arcane()) unlockInvasion(); else if (!invasion()) unlockArcane(); }
+  function unlockNext() { if (arcane()) unlockInvasion(); else if (invasion()) unlockInferno(); else if (!inferno()) unlockArcane(); }
   // keeps the 10 best runs of each difficulty
   function trimBoard(list) {
     const keep = d => list.filter(r => boardKey(r) === d).sort((a, c) => c.score - a.score).slice(0, 10);
-    return keep('normal').concat(keep('arcane'), keep('invasion'), keep('coop'), keep('versus'));
+    return keep('normal').concat(keep('arcane'), keep('invasion'), keep('inferno'), keep('coop'), keep('versus'));
   }
   // which leaderboard a run belongs on: versus matches get their own, whatever difficulty they were played on
   function boardKey(r) { return r.vs ? 'versus' : r.diff || 'normal'; }
@@ -1273,7 +1366,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   addEventListener('pagehide', () => { try { if (FR.peer) FR.peer.destroy(); } catch (e) {} });
   const saveFriends = () => jset('nightops-friends', friends);
   const myStats = () => ({ name: me.name || 'Player', prank: pRank(), lv: pLevel(), best, wave: bestWave, bestA, waveA: bestWaveA, bestC, waveC: bestWaveC,
-    bestI, waveI: bestWaveI, arc: arcaneUnlocked() ? 1 : 0, inv: invasionUnlocked() ? 1 : 0, gun: chosenGun, prof: myProf() });
+    bestI, waveI: bestWaveI, bestF, waveF: bestWaveF, arc: arcaneUnlocked() ? 1 : 0, inv: invasionUnlocked() ? 1 : 0, hel: infernoUnlocked() ? 1 : 0,
+    gun: chosenGun, prof: myProf() });
   // the profile summary friends can see
   function myProf() {
     const c = myCos(), mx = {};
@@ -1282,14 +1376,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       st: { kills: st('kills'), meleeKills: st('meleeKills'), crits: st('crits'), bosses: Object.values(STATS.bosses).reduce((s, n) => s + n, 0),
         distinct: bossesBeaten(), runs: st('runs'), waves: st('waves'), deaths: st('deaths'), vsWins: st('vsWins'), vsLosses: st('vsLosses'),
         pvp: st('pvp'), time: Math.round(st('time')), best, bestWave, wizards: st('wizards'), beastsD: beastsBeaten(), bestA, bestWaveA,
-        aliens: st('aliens'), invadersD: invadersBeaten(), bestI, bestWaveI } };
+        aliens: st('aliens'), invadersD: invadersBeaten(), bestI, bestWaveI, demons: st('demons'), angels: st('angels'), fiendsD: fiendsBeaten(), bestF, bestWaveF } };
   }
   // a friend's profile arrives over the wire, so every field is checked and clamped
   function cleanProf(p) {
     if (!p || typeof p !== 'object') return null;
     const s = p.st && typeof p.st === 'object' ? p.st : {}, out = { st: {}, mx: {} };
     for (const k of ['kills', 'meleeKills', 'crits', 'bosses', 'distinct', 'runs', 'waves', 'deaths', 'vsWins', 'vsLosses', 'pvp', 'time', 'best', 'bestWave',
-      'wizards', 'beastsD', 'bestA', 'bestWaveA', 'aliens', 'invadersD', 'bestI', 'bestWaveI']) out.st[k] = num(s[k], 1e9);
+      'wizards', 'beastsD', 'bestA', 'bestWaveA', 'aliens', 'invadersD', 'bestI', 'bestWaveI', 'demons', 'angels', 'fiendsD', 'bestF', 'bestWaveF']) out.st[k] = num(s[k], 1e9);
     out.ach = Array.isArray(p.ach) ? p.ach.filter(id => ACH_BY[id]).slice(0, ACHS.length) : [];
     out.pts = out.ach.reduce((t, id) => t + TIERS[ACH_BY[id].tier].pts, 0);
     out.ti = TITLES.includes(p.ti) ? p.ti : '';
@@ -1337,6 +1431,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     f.prank = num(d.prank, PRANKS.length - 1); f.lv = lvOf(d.lv, d.prank); f.best = num(d.best, 1e9); f.wave = num(d.wave, 9999);
     f.bestA = num(d.bestA, 1e9); f.waveA = num(d.waveA, 9999); f.arc = !!d.arc;
     f.bestI = num(d.bestI, 1e9); f.waveI = num(d.waveI, 9999); f.inv = !!d.inv;
+    f.bestF = num(d.bestF, 1e9); f.waveF = num(d.waveF, 9999); f.hel = !!d.hel;
     f.bestC = num(d.bestC, 1e9); f.waveC = num(d.waveC, 9999);
     if (GUN[d.gun]) f.gun = d.gun;
     const prof = cleanProf(d.prof);
@@ -1479,7 +1574,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const PROGRESS_TAG = 'NOPS1.';
   const progressCode = () => PROGRESS_TAG + btoa(unescape(encodeURIComponent(JSON.stringify({
     mastery: MAST, best, bestWave, board: localBoard(), run: loadRun(), friends, gun: chosenGun, melee: chosenMelee,
-    ach: ACH, stats: STATS, cos: MYCOS, unlock: jget('nightops-unlock', {}), bestA, bestWaveA, bestC, bestWaveC, bestI, bestWaveI
+    ach: ACH, stats: STATS, cos: MYCOS, unlock: jget('nightops-unlock', {}), bestA, bestWaveA, bestC, bestWaveC, bestI, bestWaveI, bestF, bestWaveF
   }))));
   // merges rather than replaces, keeping the better of each, so neither copy loses anything
   function importProgress(raw) {
@@ -1523,11 +1618,12 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     if (d.unlock && typeof d.unlock === 'object') {
       const u = jget('nightops-unlock', {});
-      for (const k of ['arcane', 'invasion']) if (d.unlock[k]) u[k] = true;
+      for (const k of ['arcane', 'invasion', 'inferno']) if (d.unlock[k]) u[k] = true;
       jset('nightops-unlock', u);
     }
     recordBest(num(d.bestA, 1e9), num(d.bestWaveA, 9999), 'arcane');
     recordBest(num(d.bestI, 1e9), num(d.bestWaveI, 9999), 'invasion');
+    recordBest(num(d.bestF, 1e9), num(d.bestWaveF, 9999), 'inferno');
     recordBest(num(d.bestC, 1e9), num(d.bestWaveC, 9999), 'coop');
     // carry the best run of each difficulty onto the global leaderboards too
     postLocalBests();
@@ -1600,7 +1696,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (G.state !== 'title') { G = freshState(chosenGun); paintFloor(); }
     if (inv.kind === 'coop') {
       FR.co = { role: 'guest', host: inv.code, hostName: inv.name, members: [], invited: {}, diff: 'normal', note: '' };
-      frSend(inv.code, { t: 'v.ca', name: me.name || 'Player', arc: arcaneUnlocked() ? 1 : 0, inv: invasionUnlocked() ? 1 : 0 });
+      frSend(inv.code, { t: 'v.ca', name: me.name || 'Player', arc: arcaneUnlocked() ? 1 : 0, inv: invasionUnlocked() ? 1 : 0, hel: infernoUnlocked() ? 1 : 0 });
       boardFrom = 'title';
       showOverlay('colobby');
       return;
@@ -1639,7 +1735,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
   }
   // the harder difficulties in versus need both players to have unlocked them in the main game
-  const vsDiffOk = (code, d) => d === 'normal' || (diffUnlocked(d) && !!(friends[code] && friends[code][d === 'arcane' ? 'arc' : 'inv']));
+  const DIFF_FLAG = { arcane: 'arc', invasion: 'inv', inferno: 'hel' };
+  const vsDiffOk = (code, d) => d === 'normal' || (diffUnlocked(d) && !!(friends[code] && friends[code][DIFF_FLAG[d]]));
   function vsSetDiff(d) {
     const L = FR.lobby;
     if (!L || L.role !== 'host' || L.status !== 'lobby') return;
@@ -1859,7 +1956,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         x.flash > 0 ? 1 : 0, x.type === 'boss' ? x.boss : -1, x.loop || 0, m ? MODE_KEYS.indexOf(m.k) : -1, m ? Math.round(m.t * 100) : 0,
         m && m.a != null ? Math.round(m.a * 100) : 0, x.phaseI || 0, Math.round((x.phaseDmg || 0) * 10),
         // Invasion extras: field / shield / phased flags, how faded it is, and which twin
-        (x.field === 'gun' ? 1 : x.field === 'melee' ? 2 : 0) | (x.shieldHp > 0 ? 4 : 0) | (x.flying ? 8 : 0),
+        (x.field === 'gun' ? 1 : x.field === 'melee' ? 2 : 0) | (x.shieldHp > 0 ? 4 : 0) | (x.flying ? 8 : 0) | (x.enraged ? 16 : 0),
         Math.round((x.alpha == null ? 1 : x.alpha) * 100), x.twin || 0];
     });
     const pk = G.pickups.map(it => [it.id, it.type === 'hp' ? 1 : 0, Math.round(it.x), Math.round(it.y), Math.round(it.t * 10)]);
@@ -1893,13 +1990,13 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       e.tx = +a[2]; e.ty = +a[3]; e.a = a[4] / 100; e.hp = a[5] / 10; e.max = Math.max(0.1, a[6] / 10);
       if (a[7]) e.flash = 0.08;
       if (type === 'boss') {
-        e.boss = clamp(num(a[8], 99), 0, BOSSES.length - 1); e.loop = num(a[9], 99); e.r = bossList()[e.boss].r;
+        e.boss = clamp(num(a[8], 99), 0, BOSSES.length - 1); e.loop = num(a[9], 99); e.twin = num(a[17], 1); e.r = bossDef(e).r;
         e.mode = a[10] >= 0 && MODE_KEYS[a[10]] ? { k: MODE_KEYS[a[10]], t: a[11] / 100, a: a[12] / 100 } : null;
         e.phaseI = num(a[13], 9); e.phaseDmg = a[14] / 10;
         e.flying = !!(e.mode && (e.mode.k === 'fly' || e.mode.k === 'land'));
-        e.twin = num(a[17], 1);
       } else { e.r = TYPES[type].r; e.flying = !!(a[15] & 8); }
-      const fl = num(a[15], 15);
+      const fl = num(a[15], 31);
+      e.enraged = !!(fl & 16);
       e.field = fl & 1 ? 'gun' : fl & 2 ? 'melee' : null;
       e.shieldHp = fl & 4 ? 1 : 0;
       e.alpha = a[16] == null ? 1 : clamp(a[16] / 100, 0, 1);
@@ -1909,7 +2006,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     for (const e of old.values()) {
       if (e.type === 'boss') {
-        boom(e.x, e.y, 110, bossList()[e.boss].shot); G.shots = []; SFX.boss();
+        boom(e.x, e.y, 110, bossDef(e).shot); G.shots = []; SFX.boss();
         for (let i = 0; i < 4; i++) stain(e.x + rand(-30, 30), e.y + rand(-30, 30), e.r);
       } else { blood(e.x, e.y, rand(-1, 1), rand(-1, 1), 14); stain(e.x, e.y, e.r); SFX.kill(); }
     }
@@ -1931,7 +2028,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const s = { k: s0.k === 'mortar' ? 'mortar' : 'orb', x: +s0.x, y: +s0.y, vx: +s0.vx || 0, vy: +s0.vy || 0, r: +s0.r || 6, dmg: +s0.dmg || 0,
         life: +s0.life || 5, color: String(s0.color || '#ff6b5a').slice(0, 24), boss: !!s0.boss, x0: +s0.x0, y0: +s0.y0, t: +s0.t || 0, max: +s0.max || 1,
         hz: HZ_KEYS.includes(s0.hz) ? s0.hz : undefined, hr: +s0.hr || 0, ht: +s0.ht || 0, bolt: !!s0.bolt, slam: !!s0.slam, slow: Math.min(3, +s0.slow || 0),
-        pod: !!s0.pod, egg: !!s0.egg, laser: !!s0.laser };
+        pod: !!s0.pod, egg: !!s0.egg, laser: !!s0.laser, rift: !!s0.rift, dive: !!s0.dive };
       // catch the shot up for the time it spent queued and on the wire
       const age = num(s0.ag, 2000) / 1000 + 0.05;
       if (s.k === 'orb') { s.x += s.vx * age; s.y += s.vy * age; s.life -= age; } else s.t -= age;
@@ -2093,7 +2190,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         const pts = Math.round(Math.min(1e6, +d.pts || 0) * ptsMul());
         addScore(pts);
         gainXp(d.ml ? G.melee : G.gun, num(d.xp, 30));
-        if (!d.mn) { G.kills++; onMyKill(!!d.ml, d.boss ? clamp(num(d.bi, 99), 0, BOSSES.length - 1) : null, num(d.bl, 99), !!d.wz, !!d.al); }
+        if (!d.mn) { G.kills++; onMyKill(!!d.ml, d.boss ? clamp(num(d.bi, 99), 0, BOSSES.length - 1) : null, num(d.bl, 99), !!d.wz, !!d.al, d.fd === 1 ? 'demon' : d.fd === 2 ? 'angel' : null); }
         if (d.pp) unlock('plug');
         if (lvl('l_belt')) p.mag = Math.min(magSize(), p.mag + lvl('l_belt'));
         floatText(+d.x || 0, +d.y || 0, '+' + pts, '#f2b134');
@@ -2207,10 +2304,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     return { x: W / 2 + s[0], y: H / 2 + s[1] };
   }
   const coShow = () => { if (FR.co && G.state === 'title') showOverlay('colobby'); };
-  const coDiffOk = d => d === 'normal' || (!!FR.co && FR.co.members.every(x => d === 'arcane' ? x.arc : d === 'invasion' && x.inv));
+  const coDiffOk = d => d === 'normal' || (!!FR.co && !!DIFF_FLAG[d] && FR.co.members.every(x => x[DIFF_FLAG[d]]));
   function coOpen() {
     if (vsBusy()) return;
-    FR.co = { role: 'host', host: me.code, members: [{ code: me.code, name: me.name || 'Player', ready: false, arc: arcaneUnlocked(), inv: invasionUnlocked() }],
+    FR.co = { role: 'host', host: me.code, members: [{ code: me.code, name: me.name || 'Player', ready: false, arc: arcaneUnlocked(), inv: invasionUnlocked(), hel: infernoUnlocked() }],
       invited: {}, diff: 'normal', note: '' };
     boardFrom = 'title';
     showOverlay('colobby');
@@ -2220,7 +2317,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const L = FR.co;
     if (!L || L.role !== 'host') return;
     if (!coDiffOk(L.diff)) L.diff = 'normal';
-    const msg = { t: 'v.cl', d: L.diff, m: L.members.map(x => [x.code, x.name, x.ready ? 1 : 0, x.arc ? 1 : 0, x.inv ? 1 : 0]) };
+    const msg = { t: 'v.cl', d: L.diff, m: L.members.map(x => [x.code, x.name, x.ready ? 1 : 0, x.arc ? 1 : 0, x.inv ? 1 : 0, x.hel ? 1 : 0]) };
     for (const x of L.members) if (x.code !== me.code) frSend(x.code, msg);
   }
   function coInvite(code) {
@@ -2288,7 +2385,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         if (!L || L.role !== 'host' || !L.invited[code]) { frSend(code, { t: 'v.cx' }); break; }
         delete L.invited[code];
         if (L.members.length >= CO_MAX) { frSend(code, { t: 'v.cx' }); break; }
-        L.members.push({ code, name: cleanName(d.name) || nm, ready: false, arc: !!d.arc, inv: !!d.inv });
+        L.members.push({ code, name: cleanName(d.name) || nm, ready: false, arc: !!d.arc, inv: !!d.inv, hel: !!d.hel });
         L.note = '';
         coSync(); coShow(); SFX.pickup();
         break;
@@ -2313,7 +2410,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         if (!L || L.role !== 'guest' || code !== L.host || !Array.isArray(d.m)) break;
         L.diff = validDiff(d.d);
         L.members = d.m.slice(0, CO_MAX).filter(a => Array.isArray(a) && /^[A-Z0-9]{12}$/.test(a[0]))
-          .map(a => ({ code: a[0], name: cleanName(a[1]) || 'Player', ready: !!a[2], arc: !!a[3], inv: !!a[4] }));
+          .map(a => ({ code: a[0], name: cleanName(a[1]) || 'Player', ready: !!a[2], arc: !!a[3], inv: !!a[4], hel: !!a[5] }));
         coShow();
         break;
       case 'v.cg': {
@@ -2401,7 +2498,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       if (top) postToBoard(Object.assign({}, top, { diff: df === 'versus' ? top.diff || 'normal' : df, prank: pRank(), lv: pLevel(), at: top.at || Date.now() }));
     }
   }
-  const boardCol = key => key === 'arcane' ? 'scores_arcane' : key === 'invasion' ? 'scores_invasion' : key === 'coop' ? 'scores_coop' : key === 'versus' ? 'scores_vs' : 'scores';
+  const boardCol = key => key === 'arcane' ? 'scores_arcane' : key === 'invasion' ? 'scores_invasion' : key === 'inferno' ? 'scores_inferno'
+    : key === 'coop' ? 'scores_coop' : key === 'versus' ? 'scores_vs' : 'scores';
   async function postToBoard(run) {
     if (!lbDb || !lbMe || !run) return;
     try {
@@ -2832,6 +2930,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     } else if (fx === 'ember') {
       for (let i = 0; i < 16; i++) { const a = rand(0, Math.PI * 2), s = rand(40, 140); addPart({ k: 'spark', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.5, 0.9), max: 0.9, drag: 2, color: i % 2 ? '#ff9a3c' : '#ff5a3c' }); }
       addPart({ k: 'ring', x, y, r: 30, life: 0.35, max: 0.35, vx: 0, vy: 0, drag: 0, color: '#ff7a3c' });
+    } else if (fx === 'hellfire') {
+      for (let i = 0; i < 20; i++) { const a = rand(0, Math.PI * 2), s = rand(60, 260); addPart({ k: 'spark', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: rand(0.4, 0.8), max: 0.8, drag: 3, color: i % 3 ? '#ff5a1a' : '#ffe68a' }); }
+      addPart({ k: 'ring', x, y, r: 36, life: 0.4, max: 0.4, vx: 0, vy: 0, drag: 0, color: '#ff3a1a' });
     }
     if (!noBlood || fx !== 'blood') blood(x, y, rand(-1, 1), rand(-1, 1), fx === 'blood' ? 14 : 5);
   }
@@ -3015,13 +3116,14 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     G.windUsed = false;
     const bossWave = n % 3 === 0;
     let total = bossWave ? 0 : arcane() ? Math.min(3 + n * 2, G.endless ? 70 : 50) : invasion() ? Math.min(Math.round(4 + n * 2.5), G.endless ? 80 : 60)
-      : Math.min(4 + n * 3, G.endless ? 90 : 70);
+      : inferno() ? Math.min(Math.round(4 + n * 2.6), G.endless ? 85 : 65) : Math.min(4 + n * 3, G.endless ? 90 : 70);
     // a bigger co-op squad faces half as many hostiles again per extra soldier
     total = Math.round(total * (1 + 0.5 * (teamSize() - 1)));
     G.queue = bossWave ? ['boss'] : [];
     const pp = n >= TYPES.plated.from ? 0.1 : 0, sp = n >= TYPES.spiker.from ? 0.1 : 0;
     if (arcane()) for (let i = 0; i < total; i++) G.queue.push(pickWizard(n));
     else if (invasion()) for (let i = 0; i < total; i++) G.queue.push(pickInvader(n));
+    else if (inferno()) for (let i = 0; i < total; i++) G.queue.push(pickFiend(n));
     else for (let i = 0; i < total; i++) {
       const r = Math.random(), q = Math.random();
       const tp = n >= 3 ? Math.min(0.25, 0.1 + 0.02 * n) : 0, gp = n >= 4 ? 0.18 : 0;
@@ -3035,10 +3137,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     G.spawnT = 1;
     if (bossWave) {
       const s = bossSlot(n), b = bossList()[s.idx];
-      G.banner = { title: bossName(b, s.loop), sub: `Wave ${n} boss · ${b.only === 'melee' ? 'Melee only' : b.only === 'gun' ? 'Guns only' : b.title}`, t: 2.6 };
+      G.banner = { title: bossName(b, s.loop), sub: `Wave ${n} ${b.pair ? 'bosses' : 'boss'} · ${b.only === 'melee' ? 'Melee only' : b.only === 'gun' ? 'Guns only' : b.title}`, t: 2.6 };
     } else {
       // a type that first appears on a boss wave gets introduced on the wave after
-      const fresh = Object.values(TYPES).find(d => !!d.arcane === arcane() && !!d.invasion === invasion() && (d.from === n || (d.from === n - 1 && (n - 1) % 3 === 0)));
+      const fresh = Object.values(TYPES).find(d => !!d.arcane === arcane() && !!d.invasion === invasion() && !!d.inferno === inferno()
+        && (d.from === n || (d.from === n - 1 && (n - 1) % 3 === 0)));
       G.banner = fresh
         ? { title: `Wave ${n}`, sub: `New hostile: ${fresh.intro}`, t: 3.5 }
         : { title: `Wave ${n}`, sub: `${total} hostiles inbound`, t: 2 };
@@ -3070,6 +3173,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const pool = ['skitter', 'skitter', 'raygun', 'drone'].filter(t => TYPES[t].from <= n);
     return pool[Math.floor(Math.random() * pool.length)];
   }
+  // Heralds are kept to about 1 in 12, Pit Brutes and Seraph Guards to about 1 in 8 each; the rest are about half demons, half angels
+  function pickFiend(n) {
+    const r = Math.random();
+    if (n >= TYPES.herald.from && r < 0.08) return 'herald';
+    if (n >= TYPES.brute.from && r >= 0.08 && r < 0.2) return 'brute';
+    if (n >= TYPES.seraph.from && r >= 0.2 && r < 0.32) return 'seraph';
+    const pool = ['imp', 'imp', 'archer', 'archer', 'caster', 'valkyrie', 'hound'].filter(t => TYPES[t].from <= n);
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
 
   function spawn(type) {
     if (type === 'boss') { spawnBoss(); return; }
@@ -3089,7 +3201,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function waveHp(type) {
     const d = TYPES[type];
     return d.hp + (type === 'grunt' && G.wave >= 6 ? 1 : 0) + (type === 'tank' ? Math.floor(G.wave / 4) : 0)
-      + ((d.arcane || d.invasion) && !d.minion ? Math.floor(G.wave / 6) : 0)
+      + ((d.arcane || d.invasion || d.inferno) && !d.minion ? Math.floor(G.wave / 6) : 0)
       + Math.floor(extraWaves() / 4) * (type === 'tank' ? 2 : 1);
   }
 
@@ -3109,14 +3221,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const { idx, loop } = bossSlot(G.wave), k = idx + 1, b = bossList()[idx], p = G.player;
     // beasts are about a third tougher than the pigs, and the Elder Dragon tops out at 4,000
     // Invasion's machines are half as tough again as the pigs, and the Mothership tops out at 4,500
-    const base = idx === BOSSES.length - 1 ? (arcane() ? 4000 : invasion() ? 4500 : 3000) : (60 * k + 12 * k * k) * 1.25 * (arcane() ? 1.3 : invasion() ? 1.5 : 1);
+    // Inferno's pairs are tougher still, and the last pair has 5,000 between them (before the 0.6 each below)
+    const base = idx === BOSSES.length - 1 ? (arcane() ? 4000 : invasion() ? 4500 : inferno() ? 5000 : 3000)
+      : (60 * k + 12 * k * k) * 1.25 * (arcane() ? 1.3 : invasion() ? 1.5 : inferno() ? 1.7 : 1);
     const hp = Math.round(base * (1 + 0.6 * loop) * (1 + 0.6 * (teamSize() - 1)));
-    const y = p.y > H / 2 ? b.r + 20 : H - b.r - 20;
-    // the Twin Commanders come as a pair, each with a bit more than half the health
-    const spots = b.twin ? [[W / 2 - 260, 0], [W / 2 + 260, 1]] : [[W / 2, 0]];
+    const pair = b.pair || [b, b], big = Math.max(pair[0].r, pair[1].r);
+    const y = p.y > H / 2 ? big + 20 : H - big - 20;
+    // the Twin Commanders and Inferno's demon and angel come as a pair, each with a bit more than half the health
+    const two = b.twin || b.pair;
+    const spots = two ? [[W / 2 - 260, 0], [W / 2 + 260, 1]] : [[W / 2, 0]];
     for (const [x, twin] of spots) {
-      const e = makeEnemy('boss', x, y, b.twin ? Math.round(hp * 0.6) : hp);
-      Object.assign(e, { r: b.r, boss: idx, loop, atkT: 2 + twin * 0.8, atkI: twin * 2, mode: null, phaseI: 0, phaseDmg: 0, heads: 3, reborn: false, twin });
+      const e = makeEnemy('boss', x, y, two ? Math.round(hp * 0.6) : hp);
+      Object.assign(e, { r: pair[twin].r, boss: idx, loop, atkT: 2 + twin * 0.8, atkI: twin * 2, mode: null, phaseI: 0, phaseDmg: 0, heads: 3, reborn: false, twin });
       G.enemies.push(e);
     }
   }
@@ -3129,7 +3245,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const m = makeEnemy(type, clamp(e.x + Math.cos(a) * e.r * 1.8, 20, W - 20), clamp(e.y + Math.sin(a) * e.r * 1.8, 20, H - 20), TYPES[type].hp);
       pushOut(m, m.r);
       G.enemies.push(m);
-      addPart({ k: 'ring', x: m.x, y: m.y, r: 26, life: 0.3, max: 0.3, vx: 0, vy: 0, drag: 0, color: bossList()[e.boss].shot });
+      addPart({ k: 'ring', x: m.x, y: m.y, r: 26, life: 0.3, max: 0.3, vx: 0, vy: 0, drag: 0, color: bossDef(e).shot });
     }
   }
 
@@ -3148,7 +3264,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     // in versus the host runs the world, so a kill the other player landed is credited to them over the wire
     const theirs = isHost() && e.lastBy === 'opp';
     const killer = theirs ? vsPeer(e.lastCode) : null;
-    const wiz = isWizard(e.type) && !d.minion, alien = isInvader(e.type) && !d.minion;
+    const wiz = isWizard(e.type) && !d.minion, alien = isInvader(e.type) && !d.minion, realm = isFiend(e.type) && !d.minion ? d.realm : null;
     // an Engineer's fields all vanish with it
     let unplugged = 0;
     if (e.type === 'engineer') for (const o of G.enemies) {
@@ -3158,24 +3274,31 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     if (unplugged >= 5 && !theirs) unlock('plug');
     // the other twin is still fighting: this one only counts as a regular kill
-    const twinLeft = e.type === 'boss' && d.twin && G.enemies.some(o => o !== e && o.type === 'boss' && !o.dead);
+    const other = e.type === 'boss' && d.twin && G.enemies.find(o => o !== e && o.type === 'boss' && !o.dead);
+    const twinLeft = !!other;
     const boss = e.type === 'boss' && !twinLeft;
     // raised skeletons are endless, so they give no mastery xp or points and don't count as kills
-    const xp = d.minion ? 0 : boss ? 30 : twinLeft ? 10 : ['tank', 'plated', 'cleric', 'necro', 'shieldbot', 'engineer', 'splitter'].includes(e.type) ? 3 : wiz || alien ? 2 : 1;
+    const xp = d.minion ? 0 : boss ? 30 : twinLeft ? 10
+      : ['tank', 'plated', 'cleric', 'necro', 'shieldbot', 'engineer', 'splitter', 'brute', 'seraph', 'herald'].includes(e.type) ? 3 : wiz || alien || realm ? 2 : 1;
     const base = d.minion ? 0 : e.type === 'boss' ? d.pts * (1 + (e.loop || 0)) * (d.twin ? 0.5 : 1) : d.pts * (1 + (G.wave - 1) * 0.15);
     const pts = Math.round(base * ptsMul());
     if (theirs) vsTo(killer.code, { t: 'v.kill', pts: base, xp, ml: e.meleeHit ? 1 : 0, x: e.x, y: e.y, boss: boss ? 1 : 0, bi: e.boss, bl: e.loop || 0, wz: wiz ? 1 : 0,
-      al: alien ? 1 : 0, mn: d.minion || twinLeft ? 1 : 0, pp: unplugged >= 5 ? 1 : 0 });
+      al: alien ? 1 : 0, fd: realm === 'demon' ? 1 : realm === 'angel' ? 2 : 0, mn: d.minion || twinLeft ? 1 : 0, pp: unplugged >= 5 ? 1 : 0 });
     else {
       if (lvl('l_belt')) G.player.mag = Math.min(magSize(), G.player.mag + lvl('l_belt'));
       gainXp(e.meleeHit ? G.melee : G.gun, xp);
       addScore(pts);
-      if (!d.minion && !twinLeft) { G.kills++; onMyKill(e.meleeHit, boss ? e.boss : null, e.loop || 0, wiz, alien); }
+      if (!d.minion && !twinLeft) { G.kills++; onMyKill(e.meleeHit, boss ? e.boss : null, e.loop || 0, wiz, alien, realm); }
+      // both halves of an Inferno pair down within 5 seconds
+      if (boss && d.realm && G.time - (G.pairT == null ? -99 : G.pairT) <= 5) unlock('balance');
     }
     if (twinLeft) {
       boom(e.x, e.y, 90, d.shot);
       for (let i = 0; i < 3; i++) stain(e.x + rand(-25, 25), e.y + rand(-25, 25), e.r);
-      G.banner = { title: 'One commander down', sub: 'The other one is still fighting', t: 2 };
+      // an Inferno boss left alone enrages: it attacks and moves faster until it's down too
+      if (d.realm) { other.enraged = true; G.pairT = G.time; }
+      G.banner = d.realm ? { title: `${d.name} is down`, sub: `${bossDef(other).name} is enraged`, t: 2 }
+        : { title: 'One commander down', sub: 'The other one is still fighting', t: 2 };
       if (isHost()) vsSend({ t: 'v.bn', b: G.banner });
       SFX.boss();
       return;
@@ -3192,7 +3315,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       boom(e.x, e.y, 110, d.shot);
       for (let i = 0; i < 4; i++) stain(e.x + rand(-30, 30), e.y + rand(-30, 30), e.r);
       G.pickups.push({ id: G.nextId++, type: 'ammo', x: e.x, y: e.y, t: 15 });
-      G.banner = { title: `${bossName(d, e.loop)} defeated`, sub: theirs ? `${killer.name || G.vs.name} landed the final blow` : `+${pts.toLocaleString()} points`, t: 2.4 };
+      G.banner = { title: `${bossName(bossList()[e.boss], e.loop)} defeated`, sub: theirs ? `${killer.name || G.vs.name} landed the final blow` : `+${pts.toLocaleString()} points`, t: 2.4 };
       // everyone except whoever landed it hears who did
       if (isHost()) {
         const who = theirs ? killer.name : me.name || (G.vs.coop ? 'The host' : 'Your opponent');
@@ -3208,7 +3331,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const p = G.player;
     const r = Math.random();
     const sc = 1 + 0.3 * lvl('scav');
-    const ammoChance = (p.res < rounds(24) ? 0.4 : 0.14) * sc * (arcane() ? 0.75 : invasion() ? 0.6 : 1);
+    const ammoChance = (p.res < rounds(24) ? 0.4 : 0.14) * sc * (arcane() ? 0.75 : invasion() ? 0.6 : inferno() ? 0.5 : 1);
     if (r < ammoChance) G.pickups.push({ id: G.nextId++, type: 'ammo', x: e.x, y: e.y, t: 12 });
   }
 
@@ -3241,7 +3364,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       return;
     }
     // the Mothership's hull soaks up some of every hit until the core is exposed at half health
-    if (e.type === 'boss' && bossList()[e.boss].armour && e.hp > e.max * 0.5) {
+    if (e.type === 'boss' && bossDef(e).armour && e.hp > e.max * 0.5) {
       dealt *= 0.6;
       if (e.hp - dealt <= e.max * 0.5) {
         G.banner = { title: 'Hull breached', sub: 'The Mothership’s core is exposed', t: 2.2 };
@@ -3265,7 +3388,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   function phaseHit(e, dmg) {
-    const b = e.type === 'boss' && bossList()[e.boss];
+    const b = e.type === 'boss' && bossDef(e);
     if (!b || !b.phases || e.hp <= 0) return;
     e.phaseDmg = (e.phaseDmg || 0) + dmg;
     if (e.phaseDmg < phaseNeed(e)) return;
@@ -3473,7 +3596,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     o = o || {};
     const t = o.t || 1.3;
     addShot({ k: 'mortar', x0: x, y0: y, x: clamp(x, 40, W - 40), y: clamp(y, 40, H - 40), t, max: t, r: o.r || 60,
-      dmg: o.dmg != null ? o.dmg : Math.round(14 * hostileMul()), color: o.egg ? '#c6ff6b' : '#7dff6b', boss: !!o.boss, pod: !o.egg, egg: !!o.egg, units });
+      dmg: o.dmg != null ? o.dmg : Math.round(14 * hostileMul()), color: o.egg ? '#c6ff6b' : o.rift ? '#ff6a2a' : o.dive ? '#ffe68a' : '#7dff6b', boss: !!o.boss,
+      pod: !o.egg && !o.rift && !o.dive, egg: !!o.egg, rift: !!o.rift, dive: !!o.dive, units });
   }
   // open ground to land on; about a third of pods come down right on top of a soldier
   function podSpot() {
@@ -3587,6 +3711,58 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     }
     return { sx, sy, k };
   }
+  // how a demon or an angel moves and attacks this frame, in the same shape as invaderThink
+  function fiendThink(e, d, dt, tg, dist, dx, dy) {
+    let sx = dx, sy = dy, k = 1;
+    const hm = hostileMul(), aim = Math.atan2(dy, dx);
+    if (d.keep) {
+      if (dist < d.keep[0]) { sx = -dx; sy = -dy; }
+      else if (dist < d.keep[1]) { sx = -dy * e.side; sy = dx * e.side; k = 0.55; }
+    }
+    if (e.type === 'archer') {
+      e.fireT -= dt;
+      if (e.fireT <= 0) {
+        if (dist < 700) { laser(e, aim + rand(-0.03, 0.03), 520, Math.round(9 * hm), d.glow); e.fireT = rand(1.3, 1.9) / (1 + 0.02 * extraWaves()); }
+        else e.fireT = 0.5;
+      }
+    } else if (e.type === 'caster') {
+      e.castT -= dt;
+      if (e.castT <= 0) {
+        e.castT = d.cast * rand(0.85, 1.15) / (1 + 0.01 * G.wave);
+        if (dist < 700) lob(e, tg.x + (tg.vx || 0) * 0.5, tg.y + (tg.vy || 0) * 0.5, { t: 0.9, r: 48, dmg: 9 * hm, color: d.glow, hz: 'fire', hr: 50, ht: 3.5 });
+      }
+    } else if (e.type === 'hound') {
+      e.dropT = (e.dropT || 0) - dt;
+      if (e.dropT <= 0) { e.dropT = 0.45; addHazard('fire', e.x, e.y, 24, 1.8); }
+    } else if (e.type === 'valkyrie') {
+      // walks in, takes off out of reach, then dives onto where you're standing
+      const v = e.dv || (e.dv = { k: 'walk', t: rand(1.5, 3) });
+      v.t -= dt;
+      if (v.k === 'walk') { e.alpha = 1; if (v.t <= 0 && dist < 650) e.dv = { k: 'up', t: 0.5 }; }
+      else if (v.k === 'up') { k = 0.3; e.alpha = Math.max(0.15, v.t / 0.5); if (v.t <= 0) { e.flying = true; e.dv = { k: 'air', t: 0.6 }; } }
+      else if (v.k === 'air') {
+        k = 0; e.alpha = 0;
+        if (v.t <= 0) {
+          const x = clamp(tg.x + (tg.vx || 0) * 0.3, 30, W - 30), y = clamp(tg.y + (tg.vy || 0) * 0.3, 30, H - 30);
+          addShot({ k: 'mortar', x0: x, y0: y, x, y, t: 0.8, max: 0.8, r: 60, dmg: Math.round(16 * hm), color: d.glow, boss: false, slam: true, dive: true });
+          e.dv = { k: 'down', t: 0.8, x, y };
+        }
+      } else {
+        k = 0; e.alpha = 0;
+        if (v.t <= 0) { e.x = v.x; e.y = v.y; pushOut(e, e.r); e.flying = false; e.alpha = 1; e.dv = { k: 'walk', t: rand(2.5, 4) }; }
+      }
+    } else if (e.type === 'herald') {
+      // a horn blast that speeds up every hostile close by for a few seconds
+      e.castT -= dt;
+      if (e.castT <= 0) {
+        e.castT = d.cast * rand(0.9, 1.1);
+        let n = 0;
+        for (const o of G.enemies) if (o !== e && !o.dead && o.type !== 'boss' && Math.hypot(o.x - e.x, o.y - e.y) < 320) { o.haste = 3; n++; }
+        if (n) { fxBeam(e.x, e.y, e.x + Math.cos(e.a) * 40, e.y + Math.sin(e.a) * 40, d.glow); addPart({ k: 'ring', x: e.x, y: e.y, r: 320, life: 0.6, max: 0.6, vx: 0, vy: 0, drag: 0, color: d.glow }); tone(520, 0.4, 'sawtooth', 0.1, 780); }
+      }
+    }
+    return { sx, sy, k };
+  }
   // the Sentinel Core's shield drones, which stop bullets as they circle it
   function orbiterAt(e, i, n) {
     const a = (G.time || 0) * 1.6 + i / n * Math.PI * 2;
@@ -3624,7 +3800,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   function bossAttack(e, name, aim) {
-    const b = bossList()[e.boss], p = vsTarget(e, G.player), tier = e.boss + 1;
+    const b = bossDef(e), p = vsTarget(e, G.player), tier = e.boss + 1;
     const spd = (230 + tier * 14) * bossSpd(e), dmg = Math.round((8 + tier) * 1.2 * bossPow(e));
     // lead the target so running in a straight line no longer dodges everything
     const fly = Math.hypot(p.x - e.x, p.y - e.y) / spd;
@@ -3762,13 +3938,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         if (G.enemies.length < 30) for (let i = 0; i < 2; i++) { const s = podSpot(); dropPod(s.x, s.y, ['hatch', 'hatch', 'hatch'], { dmg, boss: true }); }
         else ring(16);
         break;
+      // ---- Inferno ----
+      case 'rift':
+        // the ground cracks open near you and imps climb out
+        if (G.enemies.filter(o => o.type === 'imp' && !o.dead).length < 10) {
+          for (let i = 0; i < 2; i++) dropPod(p.x + rand(-180, 180), p.y + rand(-180, 180), ['imp', 'imp'], { t: 1.1, r: 46, dmg, boss: true, rift: true });
+        } else ring(12);
+        break;
     }
     SFX.eshot();
   }
 
   // returns a movement override while the boss is busy with an attack, or null to chase normally
   function bossThink(e, dt, dx, dy) {
-    const b = bossList()[e.boss], aim = Math.atan2(dy, dx), m = e.mode;
+    const b = bossDef(e), aim = Math.atan2(dy, dx), m = e.mode;
     const hold = { sx: 0, sy: 0, spd: 0 };
     const tier = e.boss + 1, spdB = (230 + tier * 14) * bossSpd(e), dmgB = Math.round((8 + tier) * 1.2 * bossPow(e));
     e.flying = !!(m && (m.k === 'fly' || m.k === 'land'));
@@ -3930,7 +4113,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (e.atkT <= 0) {
       bossAttack(e, b.attacks[e.atkI % b.attacks.length], aim);
       e.atkI++;
-      e.atkT = Math.max(0.45, b.cd * Math.pow(0.92, e.loop || 0) * (e.hp < e.max * 0.5 ? 0.65 : 1));
+      e.atkT = Math.max(0.45, b.cd * Math.pow(0.92, e.loop || 0) * (e.hp < e.max * 0.5 ? 0.65 : 1) * (e.enraged ? 0.7 : 1));
     }
     return null;
   }
@@ -4026,7 +4209,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       }
       // the Sentinel Core's circling shield drones stop bullets
       if (!dead && !b.melee) for (const e of G.enemies) {
-        const n = e.type === 'boss' && !e.dead && bossList()[e.boss].orbiters;
+        const n = e.type === 'boss' && !e.dead && bossDef(e).orbiters;
         if (!n) continue;
         for (let k = 0; k < n && !dead; k++) {
           const o = orbiterAt(e, k, n);
@@ -4089,13 +4272,15 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       dx /= dist; dy /= dist;
       e.a = Math.atan2(dy, dx);
       let sx = dx, sy = dy, spd = d.speed * spdMul;
-      if (['runner', 'skel', 'skitter', 'hatch', 'splitling'].includes(e.type)) {
+      if (['runner', 'skel', 'skitter', 'hatch', 'splitling', 'imp', 'hound'].includes(e.type)) {
         spd = Math.min(spd, runnerCap);
         // after biting you, a runner stumbles for a moment so you can get clear
         if (e.slow > 0) { e.slow -= dt; spd *= 0.35; }
       }
       if (e.chill > 0) { e.chill -= dt; spd *= 1 - e.chillAmt; }
       if (e.stun > 0) { e.stun -= dt; spd = 0; }
+      // a Herald's horn
+      if (e.haste > 0) { e.haste -= dt; spd *= 1.35; }
       if (e.type === 'gunner') {
         if (dist < 240) { sx = -dx; sy = -dy; }
         else if (dist < 340) { sx = -dy * e.side; sy = dx * e.side; spd *= 0.6; }
@@ -4111,6 +4296,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       } else if (e.type === 'boss') {
         const mv = bossThink(e, dt, dx, dy);
         if (mv) { sx = mv.sx; sy = mv.sy; spd = mv.spd; }
+        if (e.enraged) spd *= 1.3;
+      } else if (d.inferno) {
+        const mv = fiendThink(e, d, dt, tg, dist, dx, dy);
+        sx = mv.sx; sy = mv.sy; spd *= mv.k;
       } else if (d.invasion) {
         const mv = invaderThink(e, d, dt, tg, dist, dx, dy);
         sx = mv.sx; sy = mv.sy; spd *= mv.k;
@@ -4140,7 +4329,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const pd = Math.hypot(p.x - e.x, p.y - e.y) || 1;
       if (!p.dead && !e.flying && pd < e.r + p.r + 2 && e.cool <= 0) {
         e.cool = 0.8;
-        if (['runner', 'skitter', 'hatch', 'splitling'].includes(e.type)) e.slow = 0.6;
+        if (['runner', 'skitter', 'hatch', 'splitling', 'imp', 'hound'].includes(e.type)) e.slow = 0.6;
         hurtPlayer(d.dmg * (e.type === 'boss' ? bossPow(e) : hostileMul()), (p.x - e.x) / pd, (p.y - e.y) / pd, e.type === 'boss');
         if (G.state !== 'playing') return;
       }
@@ -4162,7 +4351,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           // a flask or fireball bursting into a pool
           addPart({ k: 'ring', x: s.x, y: s.y, r: s.hr || 50, life: 0.35, max: 0.35, vx: 0, vy: 0, drag: 0, color: s.color });
           noise(0.15, 700, 1, 0.3);
-        } else if (s.egg) {
+        } else if (s.egg || s.rift || s.dive) {
           addPart({ k: 'ring', x: s.x, y: s.y, r: s.r, life: 0.35, max: 0.35, vx: 0, vy: 0, drag: 0, color: s.color });
           noise(0.15, 700, 1, 0.3);
         } else boom(s.x, s.y, s.r, s.color);
@@ -4229,6 +4418,16 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
             dropPod(s.x, s.y, G.queue.splice(0, 3 + Math.floor(Math.random() * 3)), { t: 1.2 + Math.random() * 0.4 });
           }
           G.spawnT = Math.max(2, 4.5 - G.wave * 0.08);
+        } else if (inferno() && G.queue[0] !== 'boss') {
+          // demons climb out of a fire rift and angels dive down in a shaft of light, 2 to 4 of each at a time
+          for (const realm of ['demon', 'angel']) {
+            const n = 2 + Math.floor(Math.random() * 3), units = [];
+            for (let i = G.queue.length - 1; i >= 0 && units.length < n; i--) if (TYPES[G.queue[i]].realm === realm) units.push(G.queue.splice(i, 1)[0]);
+            if (!units.length) continue;
+            const s = podSpot();
+            dropPod(s.x, s.y, units, realm === 'demon' ? { rift: true, t: 1.4, dmg: Math.round(10 * hostileMul()) } : { dive: true, t: 1.1 });
+          }
+          G.spawnT = Math.max(1.2, 2.6 - G.wave * 0.05);
         } else {
           spawn(G.queue.shift());
           G.spawnT = arcane() ? Math.max(0.2, 0.75 - G.wave * 0.05) : Math.max(0.25, 0.9 - G.wave * 0.05);
@@ -4317,6 +4516,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       ctx.fillStyle = '#9fe7ff'; ellipse(0, -1.2, 2.6, 2.2);
       ctx.fillStyle = '#a9b4bf'; ellipse(0, 1, 5.4, 2);
       ctx.fillStyle = '#7dff6b'; circle(-2.6, 1.2, 0.8); circle(0, 1.6, 0.8); circle(2.6, 1.2, 0.8);
+    } else if (kind === 'halo') {
+      ctx.strokeStyle = '#ffe68a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 0, 4.5, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
     } else if (kind === 'crown') {
       ctx.fillStyle = '#f2c14e'; ctx.beginPath();
       ctx.moveTo(-5, 3); ctx.lineTo(-5, -2); ctx.lineTo(-2.5, 0.5); ctx.lineTo(0, -4); ctx.lineTo(2.5, 0.5); ctx.lineTo(5, -2); ctx.lineTo(5, 3);
@@ -4423,9 +4625,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   }
 
   function drawEnemy(e) {
-    if (e.type === 'boss') { if (arcane()) drawBeast(e); else if (invasion()) drawMachine(e); else drawPig(e); return; }
+    if (e.type === 'boss') { if (arcane()) drawBeast(e); else if (invasion()) drawMachine(e); else if (inferno()) drawHeavenHell(e); else drawPig(e); return; }
     if (isWizard(e.type)) { drawWizard(e); return; }
     if (isInvader(e.type)) { drawInvader(e); return; }
+    if (isFiend(e.type)) { drawFiend(e); return; }
     const d = TYPES[e.type], r = e.r;
     ctx.save();
     ctx.translate(e.x, e.y);
@@ -4746,6 +4949,222 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     hpBar(e);
   }
 
+  // three turning laser beams (dashed aiming lines first), drawn from a boss's centre
+  function drawLasers(m, shot) {
+    if (!m || m.k !== 'lasers') return;
+    const aiming = m.t > 2.4;
+    for (let i = 0; i < 3; i++) {
+      const a = (m.a || 0) + i * Math.PI * 2 / 3, x = Math.cos(a) * 820, y = Math.sin(a) * 820;
+      ctx.lineCap = 'round';
+      if (aiming) {
+        ctx.strokeStyle = 'rgba(255,90,90,0.45)'; ctx.lineWidth = 2; ctx.setLineDash([10, 10]);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
+      } else {
+        ctx.strokeStyle = shot; ctx.globalAlpha = 0.35; ctx.lineWidth = 18;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(x, y); ctx.stroke();
+        ctx.globalAlpha = 1; ctx.lineWidth = 6; ctx.stroke();
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+  }
+  // feathered wings spread either side, drawn facing +x; flap is -1..1
+  function angelWings(r, span, col, edge, flap) {
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.moveTo(r * 0.1, s * r * 0.3);
+      ctx.quadraticCurveTo(-r * 0.1, s * r * (span + 0.2 * flap), -r * 1.1, s * r * (span * 0.95 + 0.2 * flap));
+      ctx.quadraticCurveTo(-r * 0.7, s * r * span * 0.6, -r * 0.5, s * r * 0.3); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = edge; ctx.lineWidth = 1.5;
+      for (let i = 1; i <= 3; i++) {
+        ctx.beginPath(); ctx.moveTo(-r * 0.2 * i, s * r * 0.4);
+        ctx.lineTo(-r * (0.25 + 0.25 * i), s * r * (span * (0.55 + 0.12 * i) + 0.2 * flap)); ctx.stroke();
+      }
+    }
+  }
+  function batWings(r, span, col, flap) {
+    ctx.fillStyle = col;
+    for (const s of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(r * 0.2, s * r * 0.3);
+      ctx.lineTo(-r * 0.2, s * r * (span + 0.2 * flap)); ctx.lineTo(-r * 0.45, s * r * (span * 0.6 + 0.1 * flap));
+      ctx.lineTo(-r * 0.75, s * r * (span * 0.85 + 0.2 * flap)); ctx.lineTo(-r * 0.9, s * r * (span * 0.45));
+      ctx.lineTo(-r * 0.5, s * r * 0.3); ctx.closePath(); ctx.fill();
+    }
+  }
+  function horns(x, r, col) {
+    ctx.fillStyle = col;
+    for (const s of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(x - r * 0.1, s * r * 0.18); ctx.quadraticCurveTo(x - r * 0.25, s * r * 0.6, x - r * 0.7, s * r * 0.55);
+      ctx.lineTo(x - r * 0.2, s * r * 0.32); ctx.closePath(); ctx.fill();
+    }
+  }
+  function halo(x, r, t) {
+    ctx.strokeStyle = `rgba(255,230,138,${0.75 + 0.2 * Math.sin(t * 4)})`; ctx.lineWidth = Math.max(2, r * 0.08);
+    ctx.beginPath(); ctx.ellipse(x, 0, r * 0.28, r * 0.34, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  // Inferno's demons and angels, each drawn facing +x
+  function drawFiend(e) {
+    const d = TYPES[e.type], r = e.r, hit = e.flash > 0, t = performance.now() / 1000;
+    const body = hit ? '#ffffff' : d.body, dark = hit ? '#dddddd' : d.dark;
+    const alpha = e.alpha == null ? 1 : e.alpha;
+    if (alpha <= 0.02) return;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ellipse(3, 5, r * 0.95, r * 0.8);
+    if (e.haste > 0) { ctx.strokeStyle = 'rgba(255,211,107,0.6)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r * 1.4, 0, Math.PI * 2); ctx.stroke(); }
+    if (e.type === 'seraph') {
+      // the holy aura that turns melee aside
+      ctx.fillStyle = 'rgba(255,230,138,0.14)'; circle(0, 0, r * 1.7);
+      ctx.strokeStyle = `rgba(255,230,138,${0.45 + 0.2 * Math.sin(t * 5)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.7, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.rotate(e.a);
+    const sw = Math.sin(e.step) * r * 0.25, flap = Math.sin(t * 8 + e.id);
+    if (d.realm === 'angel') {
+      angelWings(r, e.type === 'seraph' ? 1.6 : 1.3, hit ? '#ffffff' : 'rgba(255,250,235,0.85)', 'rgba(160,140,90,0.6)', flap);
+      if (e.type === 'seraph') angelWings(r * 0.7, 1.4, 'rgba(255,240,200,0.7)', 'rgba(160,140,90,0.5)', -flap);
+      ctx.fillStyle = body; ellipse(0, 0, r * 0.7, r * 0.85);
+      ctx.strokeStyle = dark; ctx.lineWidth = 2; ctx.stroke();
+      if (e.type === 'archer') {
+        ctx.strokeStyle = '#c9a24a'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(r * 0.7, 0, r * 0.7, -1.1, 1.1); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(r * 0.95, -r * 0.62); ctx.lineTo(r * 0.95, r * 0.62); ctx.stroke();
+      } else if (e.type === 'valkyrie') {
+        ctx.strokeStyle = '#b8c0c8'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(-r * 0.4, r * 0.5); ctx.lineTo(r * 1.6, r * 0.5); ctx.stroke();
+        ctx.fillStyle = d.glow; ctx.beginPath(); ctx.moveTo(r * 1.6, r * 0.38); ctx.lineTo(r * 1.95, r * 0.5); ctx.lineTo(r * 1.6, r * 0.62); ctx.closePath(); ctx.fill();
+      } else if (e.type === 'herald') {
+        ctx.fillStyle = '#d8b24a'; ctx.beginPath(); ctx.moveTo(r * 0.4, -r * 0.1); ctx.lineTo(r * 1.5, -r * 0.4); ctx.lineTo(r * 1.5, r * 0.2); ctx.closePath(); ctx.fill();
+      } else if (e.type === 'seraph') {
+        ctx.strokeStyle = '#d8b24a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(r * 0.2, -r * 0.6); ctx.lineTo(r * 1.3, -r * 0.6); ctx.stroke();
+      }
+      ctx.fillStyle = hit ? '#ffffff' : '#ffe8c8'; circle(r * 0.2, 0, r * 0.4);
+      halo(r * 0.2, r, t);
+    } else {
+      if (e.type === 'hound') {
+        // a low, long body on four legs
+        ctx.fillStyle = dark;
+        for (const [x, y] of [[0.5, -0.55], [0.5, 0.55], [-0.6, -0.55], [-0.6, 0.55]]) circle(r * x + (y < 0 ? sw : -sw) * 0.4, r * y, r * 0.22);
+        ctx.fillStyle = body; ellipse(-r * 0.1, 0, r * 1.05, r * 0.5);
+        ctx.fillStyle = dark; circle(r * 0.85, 0, r * 0.38);
+        ctx.fillStyle = d.glow; circle(r * 1.0, -r * 0.14, 1.8); circle(r * 1.0, r * 0.14, 1.8);
+        ctx.fillStyle = `rgba(255,120,40,${0.5 + 0.3 * Math.sin(t * 12 + e.id)})`; circle(-r * 1.15, 0, r * 0.25);
+      } else {
+        if (e.type !== 'imp') batWings(r, e.type === 'brute' ? 1.2 : 1.4, dark, flap);
+        else batWings(r, 1.1, dark, flap);
+        ctx.fillStyle = dark; circle(r * 0.8 + sw * 0.3, -r * 0.55, r * 0.26); circle(r * 0.8 - sw * 0.3, r * 0.55, r * 0.26);
+        ctx.fillStyle = body; ellipse(0, 0, r * 0.72, r * 0.9);
+        ctx.strokeStyle = dark; ctx.lineWidth = 2; ctx.stroke();
+        if (e.type === 'brute') {
+          ctx.fillStyle = hit ? '#ffffff' : '#3a1a14';
+          ctx.fillRect(-r * 0.55, -r * 0.75, r * 0.3, r * 1.5); ctx.fillRect(r * 0.15, -r * 0.7, r * 0.25, r * 1.4);
+        }
+        if (e.type === 'caster') { ctx.fillStyle = d.glow; circle(r * 1.2, r * 0.55, 3 + (e.castT < 0.4 ? 3 : 0) + Math.sin(t * 9) * 0.8); }
+        horns(r * 0.25, r, hit ? '#ffffff' : '#e8d8b8');
+        ctx.fillStyle = dark; circle(r * 0.25, 0, r * 0.38);
+        ctx.fillStyle = d.glow; circle(r * 0.45, -r * 0.15, 1.8); circle(r * 0.45, r * 0.15, 1.8);
+      }
+    }
+    ctx.restore();
+    hpBar(e);
+  }
+  // Inferno's boss pairs: the demon and the angel half each draw themselves
+  function drawHeavenHell(e) {
+    const b = bossDef(e), r = e.r, hit = e.flash > 0, t = performance.now() / 1000, m = e.mode;
+    const body = hit ? '#ffffff' : b.color, dark = hit ? '#dddddd' : b.dark, angel = b.realm === 'angel';
+    let alpha = 1;
+    if (m && m.k === 'fade') alpha = Math.max(0.05, m.t / 0.45);
+    if (m && m.k === 'appear') alpha = 1 - Math.max(0, m.t) / 0.4;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    if (m && m.k === 'windup') {
+      ctx.strokeStyle = `rgba(216,69,58,${0.25 + 0.5 * (1 - m.t / 0.6)})`; ctx.lineWidth = r * 0.9; ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(m.a) * 420, Math.sin(m.a) * 420); ctx.stroke();
+    }
+    drawLasers(m, b.shot);
+    if (e.enraged) {
+      ctx.fillStyle = angel ? `rgba(255,240,170,${0.18 + 0.12 * Math.sin(t * 10)})` : `rgba(255,70,30,${0.2 + 0.12 * Math.sin(t * 10)})`;
+      circle(0, 0, r * 1.6);
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ellipse(5, 8, r * 1.1, r * 0.85);
+    ctx.globalAlpha = alpha;
+    ctx.rotate(e.a);
+    const sw = Math.sin(e.step) * r * 0.15, flap = Math.sin(t * 5 + e.twin);
+    if (b.kind === 'wheel') {
+      // wheels within wheels, ringed with eyes
+      for (const [rr, sp] of [[1, 1], [0.7, -1.4]]) {
+        ctx.strokeStyle = hit ? '#ffffff' : '#e8c86a'; ctx.lineWidth = r * 0.12;
+        ctx.beginPath(); ctx.arc(0, 0, r * rr, 0, Math.PI * 2); ctx.stroke();
+        for (let i = 0; i < 8; i++) {
+          const a = i / 8 * Math.PI * 2 + t * sp;
+          ctx.fillStyle = '#fffbe8'; circle(Math.cos(a) * r * rr, Math.sin(a) * r * rr, r * 0.09);
+          ctx.fillStyle = '#3a6ad8'; circle(Math.cos(a) * r * rr, Math.sin(a) * r * rr, r * 0.04);
+        }
+      }
+      ctx.fillStyle = b.shot; circle(0, 0, r * 0.3);
+    } else if (b.kind === 'serpent') {
+      for (let i = 7; i >= 1; i--) {
+        ctx.fillStyle = i % 2 ? body : dark;
+        circle(-i * r * 0.42, Math.sin(e.step * 0.6 + i * 0.8) * r * 0.35, r * (0.62 - i * 0.04));
+      }
+      ctx.fillStyle = `rgba(255,140,40,${0.5 + 0.3 * Math.sin(t * 6)})`; for (let i = 1; i < 7; i += 2) circle(-i * r * 0.42, Math.sin(e.step * 0.6 + i * 0.8) * r * 0.35, r * 0.14);
+      ctx.fillStyle = body; circle(r * 0.3, 0, r * 0.62);
+      horns(r * 0.4, r, '#2a0806');
+      ctx.fillStyle = '#ffd36b'; circle(r * 0.65, -r * 0.18, r * 0.06); circle(r * 0.65, r * 0.18, r * 0.06);
+    } else if (angel) {
+      angelWings(r, b.kind === 'archangel' ? 1.9 : 1.6, hit ? '#ffffff' : 'rgba(255,250,235,0.9)', 'rgba(160,140,90,0.6)', flap);
+      if (b.kind === 'archangel' || b.kind === 'choir') angelWings(r * 0.75, 1.5, 'rgba(255,240,200,0.75)', 'rgba(160,140,90,0.5)', -flap);
+      ctx.fillStyle = body; ellipse(0, 0, r * 0.7, r * 0.85);
+      ctx.strokeStyle = dark; ctx.lineWidth = 3; ctx.stroke();
+      if (b.kind === 'paladin' || b.kind === 'lancer' || b.kind === 'valkyrie' || b.kind === 'archangel') {
+        // a long blade or spear held out in front
+        ctx.strokeStyle = b.kind === 'paladin' ? '#dfe6ea' : '#c9a24a'; ctx.lineWidth = r * 0.08;
+        ctx.beginPath(); ctx.moveTo(r * 0.2, r * 0.5); ctx.lineTo(r * 1.7, r * 0.5); ctx.stroke();
+        ctx.fillStyle = b.shot; circle(r * 1.7, r * 0.5, r * 0.08);
+      }
+      if (b.kind === 'sun') { ctx.fillStyle = `rgba(255,220,120,${0.5 + 0.2 * Math.sin(t * 3)})`; circle(r * 0.9, 0, r * 0.35); }
+      if (b.kind === 'seraph' || b.kind === 'paladin') { ctx.fillStyle = hit ? '#ffffff' : '#d8b24a'; ellipse(r * 0.55, -r * 0.55, r * 0.22, r * 0.38); }
+      ctx.fillStyle = hit ? '#ffffff' : '#ffe8c8'; circle(r * 0.25, 0, r * 0.38);
+      halo(r * 0.25, r, t);
+      if (b.kind === 'archangel') { ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(r * 0.25, 0, r * 0.55, 0, Math.PI * 2); ctx.stroke(); }
+    } else {
+      // a demon: bat wings, a thick body, horns and burning eyes
+      if (b.kind !== 'hound' && b.kind !== 'golem' && b.kind !== 'behemoth') batWings(r, b.kind === 'king' ? 1.8 : 1.4, hit ? '#ffffff' : '#2a0806', flap);
+      if (b.kind === 'hound' || b.kind === 'behemoth') {
+        ctx.fillStyle = dark;
+        for (const [x, y] of [[0.5, -0.62], [0.5, 0.62], [-0.55, -0.6], [-0.55, 0.6]]) ellipse(r * x + (y < 0 ? sw : -sw), r * y, r * 0.2, r * 0.13);
+      } else { ctx.fillStyle = dark; circle(r * 0.7 + sw, -r * 0.6, r * 0.22); circle(r * 0.7 - sw, r * 0.6, r * 0.22); }
+      ctx.fillStyle = body;
+      if (b.kind === 'golem') { ctx.beginPath(); for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; ctx.lineTo(Math.cos(a) * r * (0.85 + 0.1 * (i % 2)), Math.sin(a) * r * (0.85 + 0.1 * (i % 2))); } ctx.closePath(); ctx.fill(); }
+      else ellipse(0, 0, r * (b.kind === 'hound' || b.kind === 'behemoth' ? 1 : 0.75), r * (b.kind === 'hound' ? 0.55 : 0.85));
+      ctx.strokeStyle = dark; ctx.lineWidth = 3; ctx.stroke();
+      if (b.kind === 'golem' || b.kind === 'fiend' || b.kind === 'behemoth') {
+        ctx.strokeStyle = `rgba(255,140,40,${0.6 + 0.3 * Math.sin(t * 5)})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(-r * 0.5, -r * 0.3); ctx.lineTo(0, 0); ctx.lineTo(-r * 0.3, r * 0.4); ctx.moveTo(0, 0); ctx.lineTo(r * 0.3, -r * 0.2); ctx.stroke();
+      }
+      if (b.kind === 'reaper') { ctx.strokeStyle = '#8a8f94'; ctx.lineWidth = r * 0.06; ctx.beginPath(); ctx.moveTo(-r * 0.3, r * 0.6); ctx.lineTo(r * 1.4, r * 0.6); ctx.stroke(); ctx.beginPath(); ctx.arc(r * 1.2, r * 0.25, r * 0.4, -0.3, 1.2); ctx.stroke(); }
+      if (b.kind === 'knight') { ctx.strokeStyle = '#3a3a40'; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.moveTo(r * 0.2, r * 0.55); ctx.lineTo(r * 1.6, r * 0.55); ctx.stroke(); }
+      if (b.kind === 'witch' || b.kind === 'imp') { ctx.fillStyle = b.shot; circle(r * 1.1, r * 0.55, r * 0.12 + Math.sin(t * 9) * 1.2); }
+      const hx = b.kind === 'hound' || b.kind === 'behemoth' ? r * 0.85 : r * 0.25;
+      horns(hx, r, hit ? '#ffffff' : '#e8d8b8');
+      ctx.fillStyle = dark; circle(hx, 0, r * 0.36);
+      ctx.fillStyle = e.enraged ? '#ffffff' : '#ffd36b'; circle(hx + r * 0.18, -r * 0.13, r * 0.06); circle(hx + r * 0.18, r * 0.13, r * 0.06);
+      if (b.kind === 'king') {
+        ctx.fillStyle = '#2a2a2a';
+        for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; ctx.beginPath(); ctx.moveTo(hx + Math.cos(a - 0.3) * r * 0.2, Math.sin(a - 0.3) * r * 0.2); ctx.lineTo(hx + Math.cos(a) * r * 0.4, Math.sin(a) * r * 0.4); ctx.lineTo(hx + Math.cos(a + 0.3) * r * 0.2, Math.sin(a + 0.3) * r * 0.2); ctx.closePath(); ctx.fill(); }
+      }
+    }
+    drawShieldFx(e, r, t);
+    ctx.restore();
+    if (b.orbiters) for (let i = 0; i < b.orbiters; i++) {
+      const o = orbiterAt(e, i, b.orbiters);
+      ctx.fillStyle = '#fff6d8'; circle(o.x, o.y, 11);
+      ctx.fillStyle = b.shot; circle(o.x, o.y, 5);
+      ctx.strokeStyle = 'rgba(255,230,138,0.5)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(o.x, o.y, 14, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
   // the Invasion bosses
   function drawMachine(e) {
     const b = INVADERS[e.boss], r = e.r, hit = e.flash > 0, t = performance.now() / 1000, m = e.mode;
@@ -4768,22 +5187,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         ctx.beginPath(); ctx.arc(0, 0, r + 620 * (1 - f), 0, Math.PI * 2); ctx.stroke();
       }
     }
-    if (m && m.k === 'lasers') {
-      const aiming = m.t > 2.4;
-      for (let i = 0; i < 3; i++) {
-        const a = (m.a || 0) + i * Math.PI * 2 / 3, x = Math.cos(a) * 820, y = Math.sin(a) * 820;
-        ctx.lineCap = 'round';
-        if (aiming) {
-          ctx.strokeStyle = 'rgba(255,90,90,0.45)'; ctx.lineWidth = 2; ctx.setLineDash([10, 10]);
-          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
-        } else {
-          ctx.strokeStyle = shot; ctx.globalAlpha = 0.35; ctx.lineWidth = 18;
-          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(x, y); ctx.stroke();
-          ctx.globalAlpha = 1; ctx.lineWidth = 6; ctx.stroke();
-          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
-        }
-      }
-    }
+    drawLasers(m, shot);
     if (m && m.k === 'scramble') {
       const f = 1 - Math.max(0, m.t) / 0.9;
       ctx.fillStyle = `rgba(255,122,217,${0.1 + 0.25 * f})`; circle(0, 0, r * (1.3 + f));
@@ -5236,7 +5640,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const prog = clamp(1 - s.t / s.max, 0, 1);
       // the warning circle takes the colour of what's about to land
       const c = s.bolt ? '255,243,107' : s.hz === 'poison' ? '140,255,90' : s.hz === 'ice' ? '191,244,255' : s.hz === 'fire' ? '255,138,60'
-        : s.hz === 'plasma' ? '93,255,200' : s.pod || s.egg ? '125,255,107' : '216,69,58';
+        : s.hz === 'plasma' ? '93,255,200' : s.rift ? '255,106,42' : s.dive ? '255,230,138' : s.pod || s.egg ? '125,255,107' : '216,69,58';
       ctx.fillStyle = `rgba(${c},${0.08 + prog * 0.2})`; circle(s.x, s.y, s.r);
       ctx.strokeStyle = `rgba(${c},0.7)`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.stroke();
@@ -5253,6 +5657,21 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
         ctx.globalAlpha = 1; ctx.fillStyle = '#3c4650'; ellipse(x, y, 11, 16);
         ctx.fillStyle = '#a9b4bf'; ellipse(x, y - 3, 7, 10);
         ctx.fillStyle = '#7dff6b'; circle(x, y - 6, 3);
+      } else if (s.k === 'mortar' && s.rift) {
+        // the ground cracking open, wider as the demons get closer
+        const prog = clamp(1 - s.t / s.max, 0, 1);
+        ctx.strokeStyle = `rgba(255,${120 + Math.floor(80 * Math.random())},40,${0.5 + 0.5 * prog})`; ctx.lineWidth = 2 + 3 * prog; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i < 4; i++) {
+          const a = i * Math.PI / 2 + 0.4, l = s.r * 0.8 * prog;
+          ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + Math.cos(a + 0.3) * l * 0.5, s.y + Math.sin(a + 0.3) * l * 0.5); ctx.lineTo(s.x + Math.cos(a) * l, s.y + Math.sin(a) * l);
+        }
+        ctx.stroke();
+      } else if (s.k === 'mortar' && s.dive && !s.slam) {
+        // a shaft of light where the angels will come down
+        const prog = clamp(1 - s.t / s.max, 0, 1);
+        ctx.fillStyle = `rgba(255,236,170,${0.12 + 0.3 * prog})`; ctx.fillRect(s.x - 14, s.y - 700, 28, 700);
+        ctx.fillStyle = `rgba(255,255,255,${0.2 + 0.4 * prog})`; ctx.fillRect(s.x - 4, s.y - 700, 8, 700);
       } else if (s.k === 'mortar' && s.egg) {
         const prog = clamp(1 - s.t / s.max, 0, 1), lift = Math.sin(prog * Math.PI);
         const x = s.x0 + (s.x - s.x0) * prog, y = s.y0 + (s.y - s.y0) * prog - lift * 140;
@@ -5414,6 +5833,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (arcane()) { ctx.fillStyle = 'rgba(110,60,200,0.08)'; ctx.fillRect(0, 0, vw, vh); }
     // and Invasion nights a faint alien green
     if (invasion()) { ctx.fillStyle = 'rgba(40,210,160,0.07)'; ctx.fillRect(0, 0, vw, vh); }
+    // and Inferno nights a faint red glow
+    if (inferno()) { ctx.fillStyle = 'rgba(220,60,20,0.08)'; ctx.fillRect(0, 0, vw, vh); }
 
     if (p.hurt > 0) {
       const hg = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.3, vw / 2, vh / 2, Math.max(vw, vh) * 0.7);
@@ -5556,12 +5977,18 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (showBoss) {
       const b = bossList()[boss.boss];
       const sh = bossShield(boss);
-      setText(ui.bossName, bossName(b, boss.loop));
-      const left = sh === 'any' || b.only ? 0 : Math.max(0, Math.round(100 * (1 - (boss.phaseDmg || 0) / phaseNeed(boss))));
-      setText(ui.bossTitle, b.only ? `${b.title} · ${b.only === 'melee' ? 'Melee only' : 'Guns only'}` : sh === 'melee' ? `Melee only · shield ${left}%` : sh === 'gun' ? `Guns only · spikes ${left}%` : b.title);
-      // a pair of bosses share one bar
       const all = G.enemies.filter(e => e.type === 'boss'), hp = all.reduce((s, e) => s + Math.max(0, e.hp), 0);
-      ui.bossFill.style.width = (b.twin ? hp / (all.length === 1 ? boss.max * 2 : all.reduce((s, e) => s + e.max, 0)) : Math.max(0, boss.hp / boss.max)) * 100 + '%';
+      setText(ui.bossName, bossName(b, boss.loop));
+      if (b.pair) {
+        // each half that's still up, with its shield and whether it's enraged
+        setText(ui.bossTitle, all.map(e => { const s = bossShield(e);
+          return bossDef(e).name + (s === 'melee' ? ' · melee only' : s === 'gun' ? ' · guns only' : '') + (e.enraged ? ' · enraged' : ''); }).join(' / '));
+      } else {
+        const left = sh === 'any' || b.only ? 0 : Math.max(0, Math.round(100 * (1 - (boss.phaseDmg || 0) / phaseNeed(boss))));
+        setText(ui.bossTitle, b.only ? `${b.title} · ${b.only === 'melee' ? 'Melee only' : 'Guns only'}` : sh === 'melee' ? `Melee only · shield ${left}%` : sh === 'gun' ? `Guns only · spikes ${left}%` : b.title);
+      }
+      // a pair of bosses share one bar
+      ui.bossFill.style.width = (b.twin || b.pair ? hp / (all.length === 1 ? boss.max * 2 : all.reduce((s, e) => s + e.max, 0)) : Math.max(0, boss.hp / boss.max)) * 100 + '%';
     }
     ui.hud.style.opacity = G.state === 'title' ? '0.35' : '1';
     setText(ui.pause, G.vs ? (G.vs.coop ? 'Leave' : 'Forfeit') : G.state === 'paused' ? 'Resume' : 'Pause');
@@ -5676,7 +6103,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       <tbody>${body}</tbody></table></div>`;
   }
   function friendRows(diff) {
-    const k = { arcane: 'A', invasion: 'I', coop: 'C' }[diff] || '';
+    const k = { arcane: 'A', invasion: 'I', inferno: 'F', coop: 'C' }[diff] || '';
     const rows = [{ name: me.name || 'You', score: bestFor(diff), wave: waveFor(diff), gun: chosenGun, prank: pRank(), lv: pLevel(), me: true }]
       .concat(Object.values(friends).map(f => ({ name: f.name || 'Player', score: f['best' + k] || 0,
         wave: f['wave' + k] || 0, gun: f.gun, prank: f.prank, lv: f.lv })));
@@ -5726,7 +6153,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       return `<li><span class="dot${on ? ' on' : ''}" title="${on ? 'Online' : 'Offline'}"></span>
         <div class="info"><b>${nameHtml(f.name || 'Player', pf ? pf.nc : 'default')} ${lvBadge(lvOf(f.lv, f.prank))}</b>
         ${pf && pf.ti ? `<span class="ttl">${esc(pf.ti)}</span>` : ''}
-        <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0}${f.bestA ? ` · Arcane ${f.bestA.toLocaleString()}` : ''}${f.bestI ? ` · Invasion ${f.bestI.toLocaleString()}` : ''} · ${pf ? `${pf.pts} pts · ` : ''}${seen}</span></div>
+        <span class="note">Best ${(f.best || 0).toLocaleString()} · wave ${f.wave || 0}${f.bestA ? ` · Arcane ${f.bestA.toLocaleString()}` : ''}${f.bestI ? ` · Invasion ${f.bestI.toLocaleString()}` : ''}${f.bestF ? ` · Inferno ${f.bestF.toLocaleString()}` : ''} ·${pf ? `${pf.pts} pts · ` : ''}${seen}</span></div>
         <button type="button" class="ghost" data-fr="profile" data-code="${c}">Profile</button>
         <button type="button" class="${on ? 'buy' : 'ghost'}" data-fr="challenge" data-code="${c}">Challenge</button>
         <button type="button" class="ghost" data-fr="remove" data-code="${c}">Remove</button></li>`;
@@ -5816,6 +6243,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
             ${stat('Wizards slain', s.wizards.toLocaleString())}${stat('Beasts beaten', `${s.beastsD}/10 kinds`)}` : ''}
           ${s.bestI || s.aliens ? `${stat('Best Invasion score', s.bestI.toLocaleString())}${stat('Best Invasion wave', s.bestWaveI)}
             ${stat('Aliens killed', s.aliens.toLocaleString())}${stat('Machines beaten', `${s.invadersD}/10 kinds`)}` : ''}
+          ${s.bestF || s.demons || s.angels ? `${stat('Best Inferno score', s.bestF.toLocaleString())}${stat('Best Inferno wave', s.bestWaveF)}
+            ${stat('Demons slain', s.demons.toLocaleString())}${stat('Angels slain', s.angels.toLocaleString())}${stat('Boss pairs beaten', `${s.fiendsD}/10 kinds`)}` : ''}
         </div>
         ${fav && d.mx[fav] ? `<p class="note">Favourite weapon: <b>${(GUN[fav] || MELEE_BY[fav]).name}</b></p>` : ''}
         <span class="label">Showcase</span>
@@ -5982,7 +6411,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <div class="chiprow">
             ${DIFFS.map(df => `<button type="button" class="chip-b" data-act="codiff" data-d="${df}" aria-pressed="${validDiff(L.diff) === df}" ${host && coDiffOk(df) ? '' : 'disabled'}>${DIFF_NAME[df]}</button>`).join('')}
           </div>
-          ${coDiffOk('invasion') ? '' : `<p class="note">${arcOk ? '' : 'Arcane needs everyone in the squad to have beaten wave 30 on Normal in the main game. '}Invasion needs everyone to have beaten wave 30 on Arcane.</p>`}
+          ${coDiffOk('inferno') ? '' : `<p class="note">${arcOk ? '' : 'Arcane needs everyone in the squad to have beaten wave 30 on Normal in the main game. '}${coDiffOk('invasion') ? ''
+            : 'Invasion needs everyone to have beaten wave 30 on Arcane. '}Inferno needs everyone to have beaten wave 30 on Invasion.</p>`}
         </div>
         ${loadoutHtml()}
         <div class="actions">
@@ -6066,7 +6496,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
               ${DIFFS.map(df => `<button type="button" class="chip-b" data-act="vsdiff" data-d="${df}" aria-pressed="${validDiff(L.diff) === df}" ${L.role === 'host' && vsDiffOk(L.code, df) ? '' : 'disabled'}>${DIFF_NAME[df]}</button>`).join('')}
             </div>
             ${L.role === 'host' && !vsDiffOk(L.code, 'arcane') ? `<p class="note">${!arcaneUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Normal in the main game to play Arcane.</p>`
-              : L.role === 'host' && !vsDiffOk(L.code, 'invasion') ? `<p class="note">${!invasionUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Arcane in the main game to play Invasion.</p>` : ''}
+              : L.role === 'host' && !vsDiffOk(L.code, 'invasion') ? `<p class="note">${!invasionUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Arcane in the main game to play Invasion.</p>`
+              : L.role === 'host' && !vsDiffOk(L.code, 'inferno') ? `<p class="note">${!infernoUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Invasion in the main game to play Inferno.</p>` : ''}
           </div>
           ${loadoutHtml()}
           <div class="wallet"><span class="label">You · ${L.ready ? 'ready' : 'picking'}</span><b>${nm} · ${L.oppReady ? 'ready' : 'picking'}</b></div>`}
@@ -6142,6 +6573,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <button type="button" class="chip-b" data-act="bdiff" data-d="normal" aria-pressed="${boardDiff === 'normal'}">Normal</button>
           <button type="button" class="chip-b" data-act="bdiff" data-d="arcane" aria-pressed="${boardDiff === 'arcane'}">Arcane</button>
           <button type="button" class="chip-b" data-act="bdiff" data-d="invasion" aria-pressed="${boardDiff === 'invasion'}">Invasion</button>
+          <button type="button" class="chip-b" data-act="bdiff" data-d="inferno" aria-pressed="${boardDiff === 'inferno'}">Inferno</button>
           <button type="button" class="chip-b" data-act="bdiff" data-d="coop" aria-pressed="${boardDiff === 'coop'}">Co-op</button>
           ${window.claude ? '' : `<button type="button" class="chip-b" data-act="bdiff" data-d="versus" aria-pressed="${boardDiff === 'versus'}">Versus</button>`}
         </div>`}
@@ -6182,9 +6614,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
                 ${DIFFS.map(df => `<button type="button" class="chip-b" data-act="diff" data-d="${df}" aria-pressed="${diff === df}" ${diffUnlocked(df) ? '' : 'disabled'}>${DIFF_NAME[df]}${diffUnlocked(df) ? '' : ' · locked'}</button>`).join('')}
               </div>
               <p class="note">${diff === 'arcane' ? 'Wizards and fantasy beasts. A pricier shop, rarer ammo and +25% XP. Its own leaderboard.'
-                : diff === 'invasion' ? 'Aliens drop in by pod, with war-machine bosses. The priciest shop, the rarest ammo and +40% XP. Its own leaderboard.'
+                : diff === 'invasion' ? 'Aliens drop in by pod, with war-machine bosses. A pricier shop, rarer ammo and +40% XP. Its own leaderboard.'
+                : diff === 'inferno' ? 'Demons climb out of fire rifts and angels dive from the sky. Every boss fight is a demon and an angel at once, and the last one standing enrages. The priciest shop, the rarest ammo and +60% XP. Its own leaderboard.'
                 : 'The original 30 waves of hostiles and boss hogs.'}
-                ${!arcaneUnlocked() ? ' Beat wave 30 on Normal in the main game to unlock Arcane.' : !invasionUnlocked() ? ' Beat wave 30 on Arcane in the main game to unlock Invasion.' : ''}</p>
+                ${!arcaneUnlocked() ? ' Beat wave 30 on Normal in the main game to unlock Arcane.' : !invasionUnlocked() ? ' Beat wave 30 on Arcane in the main game to unlock Invasion.'
+                  : !infernoUnlocked() ? ' Beat wave 30 on Invasion in the main game to unlock Inferno.' : ''}</p>
             </div>
             <div class="startpick">
               <label class="label" for="startWave">Starting wave</label>
@@ -6241,7 +6675,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       o.innerHTML = `<div class="brief">
         <p class="eyebrow">Wave 30 cleared · Dawn at LZ-7</p>
         <h1>Mission complete</h1>
-        <p class="lede">${invasion() ? 'The Mothership is down and the sky is clear' : `${bossList()[BOSSES.length - 1].name} is down and the yard is quiet`}. You held the landing zone through all 30 waves.</p>
+        <p class="lede">${invasion() ? 'The Mothership is down and the sky is clear' : inferno() ? 'The Fallen King and the Archangel are down and the fires are out'
+          : `${bossList()[BOSSES.length - 1].name} is down and the yard is quiet`}. You held the landing zone through all 30 waves.</p>
         <div class="stats">
           <div><span class="label">Hostiles down</span><b>${G.kills}</b></div>
           <div><span class="label">Score</span><b class="newbest">${G.score.toLocaleString()}</b></div>
