@@ -631,9 +631,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     { name: 'Plasma Tank', title: 'Scorched Earth', kind: 'tank', r: 46, speed: 55, color: '#5a6f5a', dark: '#1e2a1e', shot: '#5dffc8',
       attacks: ['plasma', 'aimed5', 'plasma', 'ring16'], cd: 1.2 },
     { name: 'Overmind', title: 'The Thought That Kills', kind: 'brain', r: 48, speed: 40, color: '#d98aa8', dark: '#5a1f3a', shot: '#ff7ad9',
-      attacks: ['scramble', 'spiral', 'fan9', 'ring16', 'stream'], cd: 1.1, phases: [['any', 0.15], ['melee', 0.1]] },
+      attacks: ['scramble', 'spiral', 'fan9', 'ring16', 'stream'], cd: 1.1, only: 'melee' },
     { name: 'Titan', title: 'The Colossus', kind: 'titan', r: 54, speed: 50, color: '#7a828c', dark: '#2a3036', shot: '#ff5a5a', beamCol: '#ff5a5a',
-      attacks: ['sweep', 'slam', 'aimed5', 'sweep', 'ring16'], cd: 1.05, phases: [['any', 0.15], ['gun', 0.1]] },
+      attacks: ['sweep', 'slam', 'aimed5', 'sweep', 'ring16'], cd: 1.05, only: 'gun' },
     { name: 'Twin Commanders', title: 'Two Generals, One War', kind: 'commander', r: 34, speed: 85, color: '#9a3a3a', dark: '#3a1212', shot: '#ff6b5a',
       twin: true, attacks: ['aimed5', 'charge', 'fan7', 'crossfire'], cd: 1.15 },
     { name: 'Mothership', title: 'The Invasion Itself', kind: 'mothership', r: 70, speed: 35, color: '#6a7480', dark: '#20262c', shot: '#7dff6b', beamCol: '#7dff6b',
@@ -1052,9 +1052,10 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const extraWaves = () => G.endless ? Math.max(0, G.wave - 30) : 0;
   const hostileMul = () => 1 + 0.03 * extraWaves();
   // some bosses cycle through phases where only one kind of weapon hurts them: 'any', 'melee' or 'gun'.
-  // each phase lasts until you deal its share of the boss's max health
+  // each phase lasts until you deal its share of the boss's max health. a boss with `only` is locked to one kind for the whole fight
   const bossShield = e => {
     if (e.type !== 'boss') return 'any';
+    if (bossList()[e.boss].only) return bossList()[e.boss].only;
     const ph = bossList()[e.boss].phases;
     return ph ? ph[(e.phaseI || 0) % ph.length][0] : 'any';
   };
@@ -3034,7 +3035,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     G.spawnT = 1;
     if (bossWave) {
       const s = bossSlot(n), b = bossList()[s.idx];
-      G.banner = { title: bossName(b, s.loop), sub: `Wave ${n} boss · ${b.title}`, t: 2.6 };
+      G.banner = { title: bossName(b, s.loop), sub: `Wave ${n} boss · ${b.only === 'melee' ? 'Melee only' : b.only === 'gun' ? 'Guns only' : b.title}`, t: 2.6 };
     } else {
       // a type that first appears on a boss wave gets introduced on the wave after
       const fresh = Object.values(TYPES).find(d => !!d.arcane === arcane() && !!d.invasion === invasion() && (d.from === n || (d.from === n - 1 && (n - 1) % 3 === 0)));
@@ -5553,8 +5554,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       const b = bossList()[boss.boss];
       const sh = bossShield(boss);
       setText(ui.bossName, bossName(b, boss.loop));
-      const left = sh === 'any' ? 0 : Math.max(0, Math.round(100 * (1 - (boss.phaseDmg || 0) / phaseNeed(boss))));
-      setText(ui.bossTitle, sh === 'melee' ? `Melee only · shield ${left}%` : sh === 'gun' ? `Guns only · spikes ${left}%` : b.title);
+      const left = sh === 'any' || b.only ? 0 : Math.max(0, Math.round(100 * (1 - (boss.phaseDmg || 0) / phaseNeed(boss))));
+      setText(ui.bossTitle, b.only ? `${b.title} · ${b.only === 'melee' ? 'Melee only' : 'Guns only'}` : sh === 'melee' ? `Melee only · shield ${left}%` : sh === 'gun' ? `Guns only · spikes ${left}%` : b.title);
       // a pair of bosses share one bar
       const all = G.enemies.filter(e => e.type === 'boss'), hp = all.reduce((s, e) => s + Math.max(0, e.hp), 0);
       ui.bossFill.style.width = (b.twin ? hp / (all.length === 1 ? boss.max * 2 : all.reduce((s, e) => s + e.max, 0)) : Math.max(0, boss.hp / boss.max)) * 100 + '%';
