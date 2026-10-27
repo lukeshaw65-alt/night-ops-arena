@@ -4222,10 +4222,13 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       G.spawnT -= dt;
       if (G.spawnT <= 0) {
         if (invasion() && G.queue[0] !== 'boss') {
-          // Invasion hostiles arrive 3 to 5 at a time in drop pods
-          const s = podSpot();
-          dropPod(s.x, s.y, G.queue.splice(0, 3 + Math.floor(Math.random() * 3)));
-          G.spawnT = Math.max(1.1, 2.6 - G.wave * 0.05);
+          // Invasion hostiles arrive in volleys of drop pods, 3 to 5 in each: 2 pods at once, 3 from wave 10, 4 from wave 20
+          const pods = 2 + (G.wave >= 10) + (G.wave >= 20);
+          for (let i = 0; i < pods && G.queue.length; i++) {
+            const s = podSpot();
+            dropPod(s.x, s.y, G.queue.splice(0, 3 + Math.floor(Math.random() * 3)), { t: 1.2 + Math.random() * 0.4 });
+          }
+          G.spawnT = Math.max(2, 4.5 - G.wave * 0.08);
         } else {
           spawn(G.queue.shift());
           G.spawnT = arcane() ? Math.max(0.2, 0.75 - G.wave * 0.05) : Math.max(0.25, 0.9 - G.wave * 0.05);
