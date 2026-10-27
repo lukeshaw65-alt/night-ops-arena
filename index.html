@@ -1079,7 +1079,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     if (arcane() && G.wave >= 10 && !G.hazHit) unlock('fireproof');
     if (invasion() && G.wave >= 10 && !G.podHit) unlock('poddodger');
   }
-  // clearing wave 30 on a difficulty: shared by solo, versus and co-op (only solo unlocks the next difficulty)
+  // clearing wave 30 on a difficulty: shared by solo, versus and co-op (versus never unlocks the next difficulty)
   function onWave30() {
     unlock('w30');
     if (!G.boughtMed) unlock('ironwill');
@@ -1278,6 +1278,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     const coop = isCoop();
     const score = coop ? coopTeam() : G.vs ? G.vs.banked + G.vs.risk : G.score, diff = coop ? 'coop' : G.diff || 'normal';
     recordBest(score, G.wave, diff);
+    checkUnlocks();
     frHelloAll();
     if (score <= (G.submitted || 0)) return;
     G.submitted = score;
@@ -1330,13 +1331,23 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
       if (wave > bestWave) { bestWave = wave; jset('nightops-bestwave', bestWave); }
     }
   }
-  // Arcane unlocks by clearing wave 30 on Normal in the main game (never through versus)
-  const arcaneUnlocked = () => !!jget('nightops-unlock', {}).arcane
-    || localBoard().some(r => !r.vs && (r.diff || 'normal') === 'normal' && r.wave > 30);
-  // Invasion unlocks by clearing wave 30 on Arcane in the main game
+  // each difficulty unlocks by clearing wave 30 on the one before it, solo or in co-op (never through versus)
+  const arcaneUnlocked = () => !!jget('nightops-unlock', {}).arcane;
   const invasionUnlocked = () => !!jget('nightops-unlock', {}).invasion;
-  // Inferno unlocks by clearing wave 30 on Invasion in the main game
   const infernoUnlocked = () => !!jget('nightops-unlock', {}).inferno;
+  // progress from before unlocks were saved (best waves, finished runs, wave-30 achievements) still opens the next difficulty
+  function checkUnlocks() {
+    const u = jget('nightops-unlock', {}), board = localBoard();
+    const cleared = d => board.some(r => !r.vs && r.wave > 30 && validDiff(r.diff === 'coop' ? r.cd : r.diff) === d);
+    const want = {
+      arcane: ACH.w30 || ACH.coop_w30 || bestWave > 30 || cleared('normal'),
+      invasion: ACH.dragonslayer || bestWaveA > 30 || cleared('arcane'),
+      inferno: ACH.mothership || bestWaveI > 30 || cleared('invasion')
+    };
+    let changed = false;
+    for (const k of Object.keys(want)) if (want[k] && !u[k]) { u[k] = true; changed = true; }
+    if (changed) { jset('nightops-unlock', u); frHelloAll(); }
+  }
   const diffUnlocked = d => d === 'normal' || (d === 'arcane' && arcaneUnlocked()) || (d === 'invasion' && invasionUnlocked()) || (d === 'inferno' && infernoUnlocked());
   function unlockDiff(d, sub) {
     const u = jget('nightops-unlock', {});
@@ -1349,7 +1360,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   const unlockArcane = () => unlockDiff('arcane', 'Wizards and fantasy beasts await on the main menu');
   const unlockInvasion = () => unlockDiff('invasion', 'The alien invasion awaits on the main menu');
   const unlockInferno = () => unlockDiff('inferno', 'Demons and angels await on the main menu');
-  // clearing wave 30 solo opens up the next difficulty
+  // clearing wave 30 solo or in co-op opens up the next difficulty
   function unlockNext() { if (arcane()) unlockInvasion(); else if (invasion()) unlockInferno(); else if (!inferno()) unlockArcane(); }
   // keeps the 10 best runs of each difficulty
   function trimBoard(list) {
@@ -1628,7 +1639,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     // carry the best run of each difficulty onto the global leaderboards too
     postLocalBests();
     saveMastery();
-    checkRanks(); checkStats();
+    checkRanks(); checkStats(); checkUnlocks();
     if (Object.keys(friends).length) unlock('squad');
     postPoints();
     // a saved run only comes across if this copy doesn't already have one
@@ -1828,7 +1839,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
     // versus counts for achievements but never unlocks the Arcane difficulty;
     // you can be down on wave 30 and respawn, so clearing any wave past it counts too
     // in co-op the squad clearing wave 30 counts even if you were down for it
-    if (G.vs.coop && G.wave >= 30) unlock('coop_w30');
+    if (G.vs.coop && G.wave >= 30) { unlock('coop_w30'); unlockNext(); }
     if (G.wave >= 30 && !G.player.dead) onWave30();
     if (G.wave >= 30 && !G.endless) { G.state = 'vsdecide'; G.vs.keep = null; showOverlay('vsdecide'); }
     else vsOpenShop();
@@ -6411,7 +6422,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
           <div class="chiprow">
             ${DIFFS.map(df => `<button type="button" class="chip-b" data-act="codiff" data-d="${df}" aria-pressed="${validDiff(L.diff) === df}" ${host && coDiffOk(df) ? '' : 'disabled'}>${DIFF_NAME[df]}</button>`).join('')}
           </div>
-          ${coDiffOk('inferno') ? '' : `<p class="note">${arcOk ? '' : 'Arcane needs everyone in the squad to have beaten wave 30 on Normal in the main game. '}${coDiffOk('invasion') ? ''
+          ${coDiffOk('inferno') ? '' : `<p class="note">${arcOk ? '' : 'Arcane needs everyone in the squad to have beaten wave 30 on Normal solo or in co-op. '}${coDiffOk('invasion') ? ''
             : 'Invasion needs everyone to have beaten wave 30 on Arcane. '}Inferno needs everyone to have beaten wave 30 on Invasion.</p>`}
         </div>
         ${loadoutHtml()}
@@ -6495,9 +6506,9 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
             <div class="chiprow">
               ${DIFFS.map(df => `<button type="button" class="chip-b" data-act="vsdiff" data-d="${df}" aria-pressed="${validDiff(L.diff) === df}" ${L.role === 'host' && vsDiffOk(L.code, df) ? '' : 'disabled'}>${DIFF_NAME[df]}</button>`).join('')}
             </div>
-            ${L.role === 'host' && !vsDiffOk(L.code, 'arcane') ? `<p class="note">${!arcaneUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Normal in the main game to play Arcane.</p>`
-              : L.role === 'host' && !vsDiffOk(L.code, 'invasion') ? `<p class="note">${!invasionUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Arcane in the main game to play Invasion.</p>`
-              : L.role === 'host' && !vsDiffOk(L.code, 'inferno') ? `<p class="note">${!infernoUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Invasion in the main game to play Inferno.</p>` : ''}
+            ${L.role === 'host' && !vsDiffOk(L.code, 'arcane') ? `<p class="note">${!arcaneUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Normal solo or in co-op to play Arcane.</p>`
+              : L.role === 'host' && !vsDiffOk(L.code, 'invasion') ? `<p class="note">${!invasionUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Arcane solo or in co-op to play Invasion.</p>`
+              : L.role === 'host' && !vsDiffOk(L.code, 'inferno') ? `<p class="note">${!infernoUnlocked() ? 'You need' : `${nm} needs`} to beat wave 30 on Invasion solo or in co-op to play Inferno.</p>` : ''}
           </div>
           ${loadoutHtml()}
           <div class="wallet"><span class="label">You · ${L.ready ? 'ready' : 'picking'}</span><b>${nm} · ${L.oppReady ? 'ready' : 'picking'}</b></div>`}
@@ -6617,8 +6628,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
                 : diff === 'invasion' ? 'Aliens drop in by pod, with war-machine bosses. A pricier shop, rarer ammo and +40% XP. Its own leaderboard.'
                 : diff === 'inferno' ? 'Demons climb out of fire rifts and angels dive from the sky. Every boss fight is a demon and an angel at once, and the last one standing enrages. The priciest shop, the rarest ammo and +60% XP. Its own leaderboard.'
                 : 'The original 30 waves of hostiles and boss hogs.'}
-                ${!arcaneUnlocked() ? ' Beat wave 30 on Normal in the main game to unlock Arcane.' : !invasionUnlocked() ? ' Beat wave 30 on Arcane in the main game to unlock Invasion.'
-                  : !infernoUnlocked() ? ' Beat wave 30 on Invasion in the main game to unlock Inferno.' : ''}</p>
+                ${!arcaneUnlocked() ? ' Beat wave 30 on Normal solo or in co-op to unlock Arcane.' : !invasionUnlocked() ? ' Beat wave 30 on Arcane solo or in co-op to unlock Invasion.'
+                  : !infernoUnlocked() ? ' Beat wave 30 on Invasion solo or in co-op to unlock Inferno.' : ''}</p>
             </div>
             <div class="startpick">
               <label class="label" for="startWave">Starting wave</label>
@@ -6974,7 +6985,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   function start(data) {
     if (data && data.player && Array.isArray(data.enemies)) G = normalize(data);
     // catch up on achievements already earned before they existed (mastery, ranks, friends)
-    checkRanks(); checkStats();
+    checkRanks(); checkStats(); checkUnlocks();
     if (Object.keys(friends).length) unlock('squad');
     if (G.state === 'title') showOverlay('title');
     else if (G.state === 'paused') showOverlay('paused');
