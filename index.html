@@ -106,12 +106,14 @@ body.touch .bossbar { top: calc(env(safe-area-inset-top, 0px) + 64px); }
 .banner span { font-family: var(--mono); color: var(--amber); letter-spacing: 0.14em; text-transform: uppercase; font-size: 14px; }
 
 .overlay {
-  position: fixed; inset: 0; display: grid; place-items: center; overflow: auto;
+  position: fixed; inset: 0; display: grid; place-items: start center; overflow: auto;
   background: rgba(5, 7, 9, 0.6); backdrop-filter: blur(2px);
   padding-block: calc(env(safe-area-inset-top, 0px) + 24px) calc(env(safe-area-inset-bottom, 0px) + 24px);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
+/* auto margins centre the panel, but shrink to 0 when it's taller than the screen so its top can still be scrolled to */
+.overlay > * { margin-block: auto; }
 .brief {
   position: relative; width: min(100%, 520px); background: var(--panel); border: 1px solid var(--line);
   padding: 28px 26px; display: flex; flex-direction: column; gap: 16px;
