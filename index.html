@@ -81,6 +81,21 @@ body.pad .keys.desk-only { display: none; }
 .padfocus { outline: 3px solid var(--amber) !important; outline-offset: 3px; }
 .padnote { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); font-family: var(--mono); font-size: 13px; }
 #reloadBtn { align-self: flex-end; padding: 12px 16px; font-size: 14px; }
+/* phones: slim see-through HUD so the yard stays visible */
+body.touch .hud { padding-top: calc(env(safe-area-inset-top, 0px) + 6px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6px); padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+body.touch .hud-top, body.touch .hud-bottom { flex-wrap: nowrap; gap: 6px; }
+body.touch .hud .chip { background: rgba(12, 16, 18, 0.4); padding: 4px 8px; gap: 2px; }
+body.touch .hud .label { font-size: 9px; letter-spacing: 0.08em; }
+body.touch .hud .num { font-size: 14px; }
+body.touch .bar { width: clamp(60px, 18vw, 120px); height: 7px; }
+body.touch .wave b { font-size: 18px; }
+body.touch .score b { font-size: 16px; }
+body.touch #bestLine, body.touch #hostiles, body.touch .kills, body.touch .mastchip, body.touch #spLabel { display: none; }
+body.touch .ammo { min-width: 0; }
+body.touch .ammo .mag { font-size: 24px; }
+body.touch .hud .btn-s { background: rgba(12, 16, 18, 0.4); padding: 6px 8px; font-size: 11px; }
+body.touch #specialBtn, body.touch #swapBtn, body.touch #reloadBtn { padding: 8px 10px; font-size: 12px; }
+body.touch .bossbar { top: calc(env(safe-area-inset-top, 0px) + 64px); }
 
 .banner {
   position: fixed; left: 50%; top: 30%; transform: translate(-50%, -50%);
@@ -5836,9 +5851,11 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
     // darkness around the player, lifted briefly by muzzle flash
     const psx = (p.x - c.x) * scale + shx, psy = (p.y - c.y) * scale + shy;
-    const g = ctx.createRadialGradient(psx, psy, 140 * scale, psx, psy, Math.max(vw, vh) * 0.8);
+    // small phone screens get a wider, softer light so the yard isn't mostly black
+    const lit = touchMode ? Math.max(140 * scale, Math.min(vw, vh) * 0.38) : 140 * scale;
+    const g = ctx.createRadialGradient(psx, psy, lit, psx, psy, Math.max(vw, vh) * 0.8);
     g.addColorStop(0, 'rgba(4,6,8,0)');
-    g.addColorStop(1, `rgba(4,6,8,${p.flash > 0 ? 0.5 : 0.74})`);
+    g.addColorStop(1, `rgba(4,6,8,${p.flash > 0 ? 0.5 : touchMode ? 0.55 : 0.74})`);
     ctx.fillStyle = g; ctx.fillRect(0, 0, vw, vh);
     // Arcane nights have a faint purple cast
     if (arcane()) { ctx.fillStyle = 'rgba(110,60,200,0.08)'; ctx.fillRect(0, 0, vw, vh); }
